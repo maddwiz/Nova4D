@@ -7,11 +7,12 @@
 
 ## Machine-Detected Paths (this setup run)
 
-- Detected Cinema 4D app: not found under `/Applications` or `~/Applications`
-- Detected `c4dpy`: not found; fallback configured:
-  `/Applications/Maxon Cinema 4D 2026/Cinema 4D.app/Contents/MacOS/c4dpy`
+- Detected Cinema 4D app:
+  `/Applications/Maxon Cinema 4D 2026/Cinema 4D.app`
+- Detected `c4dpy`:
+  `/Applications/Maxon Cinema 4D 2026/c4dpy.app/Contents/MacOS/c4dpy`
 - Plugin install target used:
-  `/Users/desmondpottle/Library/Preferences/Maxon/Cinema 4D 2026/plugins/Nova4D`
+  `/Users/desmondpottle/Library/Preferences/Maxon/Maxon Cinema 4D 2026_9D810372/plugins/Nova4D`
 
 ## Steps
 
@@ -24,7 +25,7 @@ bash scripts/run-mac-local.sh
 Copy plugin folder:
 
 - from: `plugins/Nova4D/`
-- to: `/Users/desmondpottle/Library/Preferences/Maxon/Cinema 4D 2026/plugins/Nova4D/`
+- to: `/Users/desmondpottle/Library/Preferences/Maxon/Maxon Cinema 4D 2026_9D810372/plugins/Nova4D/`
 
 Restart Cinema 4D and run `Nova4D - OpenClaw Bridge`.
 
