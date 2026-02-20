@@ -1,5 +1,7 @@
 # Nova4D Buyer Guide
 
+Requires an active Cinema 4D 2025+ or 2026 subscription (standalone or Maxon One). Nova4D will not work on trial or Lite versions. A free 14-day trial of Maxon One is available from maxon.net if you want to test first.
+
 ## 1. Install
 
 1. Unzip `Nova4D-v1.0.0.zip`.

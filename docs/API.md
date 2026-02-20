@@ -1,150 +1,991 @@
-# Nova4D API (v1.0.0)
+# Nova4D API
 
-Base URL: `http://localhost:30010`
+Copy-paste API reference for local Nova4D usage with Cinema 4D.
 
-If `NOVA4D_API_KEY` is set, include header:
-
-```text
-X-API-Key: <key>
-```
-
-## Core Queue Endpoints
-
-- `GET /nova4d/health`
-- `GET /nova4d/stats`
-- `GET /nova4d/stream`
-- `GET /nova4d/commands`
-- `GET /nova4d/commands/recent`
-- `GET /nova4d/commands/:id`
-- `POST /nova4d/command`
-- `POST /nova4d/commands/batch`
-- `POST /nova4d/results`
-- `POST /nova4d/commands/:id/requeue`
-- `POST /nova4d/commands/:id/cancel`
-
-## Command Route Index (60+)
-
-### Scene
-
-- `POST /nova4d/scene/spawn-object`
-- `POST /nova4d/scene/set-transform`
-- `POST /nova4d/scene/set-property`
-- `POST /nova4d/scene/set-visibility`
-- `POST /nova4d/scene/set-color`
-- `POST /nova4d/scene/delete-object`
-- `POST /nova4d/scene/duplicate-object`
-- `POST /nova4d/scene/group-objects`
-- `POST /nova4d/scene/parent-object`
-- `POST /nova4d/scene/rename-object`
-- `POST /nova4d/scene/select-object`
-- `POST /nova4d/scene/clear-selection`
-
-### Materials
-
-- `POST /nova4d/material/create-standard`
-- `POST /nova4d/material/create-redshift`
-- `POST /nova4d/material/create-arnold`
-- `POST /nova4d/material/assign`
-- `POST /nova4d/material/set-parameter`
-- `POST /nova4d/material/set-texture`
-
-### MoGraph
-
-- `POST /nova4d/mograph/cloner/create`
-- `POST /nova4d/mograph/matrix/create`
-- `POST /nova4d/mograph/effector/random`
-- `POST /nova4d/mograph/effector/plain`
-- `POST /nova4d/mograph/effector/step`
-- `POST /nova4d/mograph/assign-effector`
-- `POST /nova4d/mograph/set-count`
-- `POST /nova4d/mograph/set-mode`
-
-### XPresso
-
-- `POST /nova4d/xpresso/create-tag`
-- `POST /nova4d/xpresso/add-node`
-- `POST /nova4d/xpresso/connect`
-- `POST /nova4d/xpresso/set-parameter`
-
-### Animation
-
-- `POST /nova4d/animation/set-key`
-- `POST /nova4d/animation/delete-key`
-- `POST /nova4d/animation/set-range`
-- `POST /nova4d/animation/play`
-- `POST /nova4d/animation/stop`
-- `POST /nova4d/animation/set-fps`
-
-### Rendering
-
-- `POST /nova4d/render/set-engine`
-- `POST /nova4d/render/frame`
-- `POST /nova4d/render/sequence`
-- `POST /nova4d/render/queue/redshift`
-- `POST /nova4d/render/queue/arnold`
-- `POST /nova4d/render/team-render/publish`
-
-### Viewport
-
-- `POST /nova4d/viewport/set-camera`
-- `POST /nova4d/viewport/focus-object`
-- `POST /nova4d/viewport/screenshot`
-- `POST /nova4d/viewport/set-display-mode`
-
-### Import/Export
-
-- `POST /nova4d/io/import/gltf`
-- `POST /nova4d/io/import/fbx`
-- `POST /nova4d/io/import/obj`
-- `POST /nova4d/io/export/gltf`
-- `POST /nova4d/io/export/fbx`
-- `POST /nova4d/io/export/obj`
-- `POST /nova4d/io/export/alembic`
-- `POST /nova4d/io/import/upload` (multipart helper)
-- `POST /nova4d/export/upload-result` (multipart helper)
-
-### Blender Pipeline
-
-- `POST /nova4d/blender/import-gltf`
-- `POST /nova4d/blender/import-fbx`
-- `POST /nova4d/blender/import/upload` (multipart helper)
-
-### System + Headless
-
-- `POST /nova4d/system/new-scene`
-- `POST /nova4d/system/open-scene`
-- `POST /nova4d/system/save-scene`
-- `POST /nova4d/headless/render-queue`
-- `POST /nova4d/headless/c4dpy-script`
-- `POST /nova4d/batch/render` (immediate c4dpy launcher)
-- `GET /nova4d/batch/jobs`
-- `GET /nova4d/batch/jobs/:jobId`
-- `POST /nova4d/batch/jobs/:jobId/cancel`
-
-### Test
-
-- `POST /nova4d/test/ping`
-
-## Examples
-
-Health:
+## Base Setup
 
 ```bash
-curl -s http://localhost:30010/nova4d/health | jq .
+BASE_URL="${BASE_URL:-http://127.0.0.1:30010}"
+API_KEY="${NOVA4D_API_KEY:-}"
+AUTH_HEADER=()
+if [ -n "$API_KEY" ]; then AUTH_HEADER=(-H "X-API-Key: $API_KEY"); fi
 ```
 
-Queue cloner:
+## Core Endpoints
+
+### Health
 
 ```bash
-curl -s -X POST http://localhost:30010/nova4d/mograph/cloner/create \
+curl -s "${BASE_URL}/nova4d/health" "${AUTH_HEADER[@]}" | jq .
+```
+
+### Queue Stats
+
+```bash
+curl -s "${BASE_URL}/nova4d/stats" "${AUTH_HEADER[@]}" | jq .
+```
+
+### Recent Commands
+
+```bash
+curl -s "${BASE_URL}/nova4d/commands/recent?limit=50" "${AUTH_HEADER[@]}" | jq .
+```
+
+### Command By ID
+
+```bash
+curl -s "${BASE_URL}/nova4d/commands/<command_id>" "${AUTH_HEADER[@]}" | jq .
+```
+
+### Dispatch Commands To Client
+
+```bash
+curl -s "${BASE_URL}/nova4d/commands?client_id=cinema4d-live&limit=20" "${AUTH_HEADER[@]}" | jq .
+```
+
+### Queue Custom Command
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/command" \
+  "${AUTH_HEADER[@]}" \
   -H 'Content-Type: application/json' \
-  -d '{"name":"AgentCloner"}' | jq .
+  -d '{
+  "route": "/nova4d/test/ping",
+  "category": "test",
+  "action": "test-ping",
+  "payload": {
+    "message": "custom queue command"
+  }
+}' | jq .
 ```
 
-Batch render:
+### Queue Batch Commands
 
 ```bash
-curl -s -X POST http://localhost:30010/nova4d/batch/render \
+curl -s -X POST "${BASE_URL}/nova4d/commands/batch" \
+  "${AUTH_HEADER[@]}" \
   -H 'Content-Type: application/json' \
-  -d '{"scene_file":"/path/to/scene.c4d","timeout_sec":900}' | jq .
+  -d '{
+  "commands": [
+    {
+      "route": "/nova4d/test/ping",
+      "category": "test",
+      "action": "test-ping",
+      "payload": {
+        "message": "batch-one"
+      }
+    },
+    {
+      "route": "/nova4d/test/ping",
+      "category": "test",
+      "action": "test-ping",
+      "payload": {
+        "message": "batch-two"
+      }
+    }
+  ]
+}' | jq .
+```
+
+### Post Command Result (worker -> bridge)
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/results" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "command_id": "<command_id>",
+  "ok": true,
+  "status": "ok",
+  "result": {
+    "note": "completed by worker"
+  }
+}' | jq .
+```
+
+### Requeue Command
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/commands/<command_id>/requeue" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{}' | jq .
+```
+
+### Cancel Command
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/commands/<command_id>/cancel" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{}' | jq .
+```
+
+### Launch Immediate c4dpy Batch Render
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/batch/render" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "scene_file": "/tmp/scene.c4d",
+  "output_path": "/tmp/render-output",
+  "timeout_sec": 900
+}' | jq .
+```
+
+### Batch Jobs
+
+```bash
+curl -s "${BASE_URL}/nova4d/batch/jobs?limit=20" "${AUTH_HEADER[@]}" | jq .
+```
+
+### Batch Job By ID
+
+```bash
+curl -s "${BASE_URL}/nova4d/batch/jobs/<job_id>" "${AUTH_HEADER[@]}" | jq .
+```
+
+### Cancel Batch Job
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/batch/jobs/<job_id>/cancel" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{}' | jq .
+```
+
+## Upload Helper Endpoints
+
+### Import Upload Helper (`/nova4d/io/import/upload`)
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/io/import/upload" \
+  "${AUTH_HEADER[@]}" \
+  -F "file=@/tmp/asset.gltf" \
+  -F "format=gltf" \
+  -F "scale_factor=1.0" \
+  -F "scale_fix=native" | jq .
+```
+
+### Blender Upload Helper (`/nova4d/blender/import/upload`)
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/blender/import/upload" \
+  "${AUTH_HEADER[@]}" \
+  -F "file=@/tmp/blender-scene.gltf" \
+  -F "format=gltf" \
+  -F "scale_fix=blender_to_c4d" \
+  -F "scale_factor=1.0" | jq .
+```
+
+### Export Upload Result Helper (`/nova4d/export/upload-result`)
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/export/upload-result" \
+  "${AUTH_HEADER[@]}" \
+  -F "file=@/tmp/render-output.png" | jq .
+```
+
+## Command Routes (61)
+
+All routes below queue commands for the Cinema 4D worker/plugin.
+
+### Scene (12)
+
+#### POST /nova4d/scene/spawn-object
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/spawn-object" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "object_type": "cube",
+  "name": "ApiCube",
+  "position": [
+    0,
+    120,
+    0
+  ],
+  "scale": [
+    1,
+    1,
+    1
+  ]
+}' | jq .
+```
+
+#### POST /nova4d/scene/set-transform
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/set-transform" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube",
+  "position": [
+    40,
+    150,
+    10
+  ],
+  "rotation": [
+    0,
+    45,
+    0
+  ],
+  "scale": [
+    1.2,
+    1.2,
+    1.2
+  ]
+}' | jq .
+```
+
+#### POST /nova4d/scene/set-property
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/set-property" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube",
+  "property": "name",
+  "value": "ApiCube_Renamed"
+}' | jq .
+```
+
+#### POST /nova4d/scene/set-visibility
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/set-visibility" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube",
+  "editor": 0,
+  "render": 0
+}' | jq .
+```
+
+#### POST /nova4d/scene/set-color
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/set-color" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube",
+  "color": [
+    0.3,
+    0.8,
+    0.5
+  ]
+}' | jq .
+```
+
+#### POST /nova4d/scene/delete-object
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/delete-object" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube"
+}' | jq .
+```
+
+#### POST /nova4d/scene/duplicate-object
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/duplicate-object" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube",
+  "new_name": "ApiCube_Copy"
+}' | jq .
+```
+
+#### POST /nova4d/scene/group-objects
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/group-objects" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "object_names": [
+    "ApiCube",
+    "ApiCube_Copy"
+  ],
+  "group_name": "ApiGroup"
+}' | jq .
+```
+
+#### POST /nova4d/scene/parent-object
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/parent-object" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "child_name": "ApiCube_Copy",
+  "parent_name": "ApiGroup"
+}' | jq .
+```
+
+#### POST /nova4d/scene/rename-object
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/rename-object" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube",
+  "new_name": "ApiCube_Main"
+}' | jq .
+```
+
+#### POST /nova4d/scene/select-object
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/select-object" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube_Main"
+}' | jq .
+```
+
+#### POST /nova4d/scene/clear-selection
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/scene/clear-selection" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{}' | jq .
+```
+
+### Materials (6)
+
+#### POST /nova4d/material/create-standard
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/material/create-standard" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "ApiStdMat",
+  "color": [
+    0.15,
+    0.65,
+    0.95
+  ]
+}' | jq .
+```
+
+#### POST /nova4d/material/create-redshift
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/material/create-redshift" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "ApiRSMat"
+}' | jq .
+```
+
+#### POST /nova4d/material/create-arnold
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/material/create-arnold" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "ApiArnoldMat"
+}' | jq .
+```
+
+#### POST /nova4d/material/assign
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/material/assign" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube_Main",
+  "material_name": "ApiStdMat"
+}' | jq .
+```
+
+#### POST /nova4d/material/set-parameter
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/material/set-parameter" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "material_name": "ApiStdMat",
+  "parameter": "roughness",
+  "value": 0.2
+}' | jq .
+```
+
+#### POST /nova4d/material/set-texture
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/material/set-texture" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "material_name": "ApiStdMat",
+  "channel": "color",
+  "texture_path": "/tmp/albedo.png"
+}' | jq .
+```
+
+### MoGraph (8)
+
+#### POST /nova4d/mograph/cloner/create
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/mograph/cloner/create" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "ApiCloner",
+  "mode": "grid"
+}' | jq .
+```
+
+#### POST /nova4d/mograph/matrix/create
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/mograph/matrix/create" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "ApiMatrix",
+  "count": 20
+}' | jq .
+```
+
+#### POST /nova4d/mograph/effector/random
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/mograph/effector/random" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "ApiRandomEffector",
+  "position_strength": [
+    30,
+    30,
+    30
+  ]
+}' | jq .
+```
+
+#### POST /nova4d/mograph/effector/plain
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/mograph/effector/plain" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "ApiPlainEffector",
+  "scale_strength": [
+    0.2,
+    0.2,
+    0.2
+  ]
+}' | jq .
+```
+
+#### POST /nova4d/mograph/effector/step
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/mograph/effector/step" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "ApiStepEffector"
+}' | jq .
+```
+
+#### POST /nova4d/mograph/assign-effector
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/mograph/assign-effector" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "cloner_name": "ApiCloner",
+  "effector_name": "ApiRandomEffector"
+}' | jq .
+```
+
+#### POST /nova4d/mograph/set-count
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/mograph/set-count" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "cloner_name": "ApiCloner",
+  "count": 50
+}' | jq .
+```
+
+#### POST /nova4d/mograph/set-mode
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/mograph/set-mode" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "cloner_name": "ApiCloner",
+  "mode": "object"
+}' | jq .
+```
+
+### XPresso (4)
+
+#### POST /nova4d/xpresso/create-tag
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/xpresso/create-tag" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube_Main"
+}' | jq .
+```
+
+#### POST /nova4d/xpresso/add-node
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/xpresso/add-node" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube_Main",
+  "node_type": "object",
+  "node_name": "CubeNode"
+}' | jq .
+```
+
+#### POST /nova4d/xpresso/connect
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/xpresso/connect" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube_Main",
+  "from_node": "Time",
+  "from_port": "Frame",
+  "to_node": "CubeNode",
+  "to_port": "Position.X"
+}' | jq .
+```
+
+#### POST /nova4d/xpresso/set-parameter
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/xpresso/set-parameter" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube_Main",
+  "node_name": "CubeNode",
+  "parameter": "Position.X",
+  "value": 120
+}' | jq .
+```
+
+### Animation (6)
+
+#### POST /nova4d/animation/set-key
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/animation/set-key" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube_Main",
+  "parameter": "position.x",
+  "frame": 0,
+  "value": 0
+}' | jq .
+```
+
+#### POST /nova4d/animation/delete-key
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/animation/delete-key" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube_Main",
+  "parameter": "position.x",
+  "frame": 30
+}' | jq .
+```
+
+#### POST /nova4d/animation/set-range
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/animation/set-range" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "start_frame": 0,
+  "end_frame": 120
+}' | jq .
+```
+
+#### POST /nova4d/animation/play
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/animation/play" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "from_frame": 0
+}' | jq .
+```
+
+#### POST /nova4d/animation/stop
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/animation/stop" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{}' | jq .
+```
+
+#### POST /nova4d/animation/set-fps
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/animation/set-fps" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "fps": 30
+}' | jq .
+```
+
+### Rendering (6)
+
+#### POST /nova4d/render/set-engine
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/render/set-engine" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "engine": "redshift"
+}' | jq .
+```
+
+#### POST /nova4d/render/frame
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/render/frame" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "frame": 0,
+  "output_path": "/tmp/nova4d-frame-0000.png"
+}' | jq .
+```
+
+#### POST /nova4d/render/sequence
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/render/sequence" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "start_frame": 0,
+  "end_frame": 60,
+  "output_path": "/tmp/nova4d-sequence"
+}' | jq .
+```
+
+#### POST /nova4d/render/queue/redshift
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/render/queue/redshift" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "scene_path": "/tmp/api_scene.c4d",
+  "output_path": "/tmp/redshift-output"
+}' | jq .
+```
+
+#### POST /nova4d/render/queue/arnold
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/render/queue/arnold" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "scene_path": "/tmp/api_scene.c4d",
+  "output_path": "/tmp/arnold-output"
+}' | jq .
+```
+
+#### POST /nova4d/render/team-render/publish
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/render/team-render/publish" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "scene_path": "/tmp/api_scene.c4d",
+  "team_render_machine": "render-node-01"
+}' | jq .
+```
+
+### Viewport (4)
+
+#### POST /nova4d/viewport/set-camera
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/viewport/set-camera" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "camera_name": "Camera"
+}' | jq .
+```
+
+#### POST /nova4d/viewport/focus-object
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/viewport/focus-object" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "target_name": "ApiCube_Main"
+}' | jq .
+```
+
+#### POST /nova4d/viewport/screenshot
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/viewport/screenshot" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "frame": 0,
+  "output_path": "/tmp/nova4d-viewport.png"
+}' | jq .
+```
+
+#### POST /nova4d/viewport/set-display-mode
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/viewport/set-display-mode" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "mode": "gouraud"
+}' | jq .
+```
+
+### Import / Export (7)
+
+#### POST /nova4d/io/import/gltf
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/io/import/gltf" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "file_path": "/tmp/sample.gltf",
+  "scale_factor": 1
+}' | jq .
+```
+
+#### POST /nova4d/io/import/fbx
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/io/import/fbx" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "file_path": "/tmp/sample.fbx",
+  "scale_factor": 1
+}' | jq .
+```
+
+#### POST /nova4d/io/import/obj
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/io/import/obj" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "file_path": "/tmp/sample.obj",
+  "scale_factor": 1
+}' | jq .
+```
+
+#### POST /nova4d/io/export/gltf
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/io/export/gltf" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "output_path": "/tmp/export_scene.gltf"
+}' | jq .
+```
+
+#### POST /nova4d/io/export/fbx
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/io/export/fbx" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "output_path": "/tmp/export_scene.fbx"
+}' | jq .
+```
+
+#### POST /nova4d/io/export/obj
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/io/export/obj" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "output_path": "/tmp/export_scene.obj"
+}' | jq .
+```
+
+#### POST /nova4d/io/export/alembic
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/io/export/alembic" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "output_path": "/tmp/export_scene.abc",
+  "start_frame": 0,
+  "end_frame": 60
+}' | jq .
+```
+
+### Blender Pipeline (2)
+
+#### POST /nova4d/blender/import-gltf
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/blender/import-gltf" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "file_path": "/tmp/blender_scene.gltf",
+  "scale_fix": "blender_to_c4d",
+  "scale_factor": 1
+}' | jq .
+```
+
+#### POST /nova4d/blender/import-fbx
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/blender/import-fbx" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "file_path": "/tmp/blender_scene.fbx",
+  "scale_fix": "blender_to_c4d",
+  "scale_factor": 1
+}' | jq .
+```
+
+### System (3)
+
+#### POST /nova4d/system/new-scene
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/system/new-scene" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{}' | jq .
+```
+
+#### POST /nova4d/system/open-scene
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/system/open-scene" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "file_path": "/tmp/scene_to_open.c4d"
+}' | jq .
+```
+
+#### POST /nova4d/system/save-scene
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/system/save-scene" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "file_path": "/tmp/scene_saved.c4d"
+}' | jq .
+```
+
+### Headless (2)
+
+#### POST /nova4d/headless/render-queue
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/headless/render-queue" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "scene_file": "/tmp/headless_scene.c4d",
+  "output_path": "/tmp/headless-out",
+  "timeout_sec": 900
+}' | jq .
+```
+
+#### POST /nova4d/headless/c4dpy-script
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/headless/c4dpy-script" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "script_path": "/tmp/headless_script.py",
+  "args": [
+    "--quality",
+    "high"
+  ]
+}' | jq .
+```
+
+### Test (1)
+
+#### POST /nova4d/test/ping
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/test/ping" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "message": "Nova4D API connected"
+}' | jq .
+```
+
+## SSE Stream
+
+```bash
+curl -N "${BASE_URL}/nova4d/stream" "${AUTH_HEADER[@]}"
 ```

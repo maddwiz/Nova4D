@@ -2,6 +2,8 @@
 
 Nova4D is an OpenClaw-ready Cinema 4D bridge for autonomous scene control, MoGraph workflows, render queueing, and headless `c4dpy` execution.
 
+Requires an active Cinema 4D 2025+ or 2026 subscription (standalone or Maxon One). Nova4D will not work on trial or Lite versions. A free 14-day trial of Maxon One is available from maxon.net if you want to test first.
+
 ## What Ships
 
 - Node.js queue bridge server (`server/index.js`) on `NOVA4D_PORT` (default `30010`)
@@ -10,6 +12,7 @@ Nova4D is an OpenClaw-ready Cinema 4D bridge for autonomous scene control, MoGra
 - Python SDK (`python-sdk/nova4d.py`)
 - MCP server (`mcp-server/nova4d_mcp.py`)
 - Curl + mock client examples (`examples/`)
+- Full copy-paste API reference (`docs/API.md`)
 - Packaging script producing `dist/Nova4D-v1.0.0.zip`
 
 ## Core Capabilities
