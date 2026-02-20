@@ -1,0 +1,84 @@
+# Nova4D
+
+Nova4D is an OpenClaw-ready Cinema 4D bridge for autonomous scene control, MoGraph workflows, render queueing, and headless `c4dpy` execution.
+
+## What Ships
+
+- Node.js queue bridge server (`server/index.js`) on `NOVA4D_PORT` (default `30010`)
+- Cinema 4D Python plugin (`plugins/Nova4D/nova4d_plugin.pyp`) with polling executor
+- OpenClaw extension (`extensions/openclaw/cinema4d-bridge`)
+- Python SDK (`python-sdk/nova4d.py`)
+- MCP server (`mcp-server/nova4d_mcp.py`)
+- Curl + mock client examples (`examples/`)
+- Packaging script producing `dist/Nova4D-v1.0.0.zip`
+
+## Core Capabilities
+
+- 60+ routed actions across scene, materials, MoGraph, XPresso, animation, render, viewport, import/export, and system control
+- Queue + lease-based dispatch + result reporting
+- SSE event stream for low-latency workers
+- API key auth (`X-API-Key`) + request rate limiting
+- Multipart uploads for import pipelines
+- One-click headless render launcher (`POST /nova4d/batch/render`)
+- Blender->Cinema pipeline routes (`/nova4d/blender/import-*`)
+
+## Quick Start
+
+```bash
+cd /home/nova/Nova4D
+npm install
+cp .env.example .env
+npm start
+```
+
+Health check:
+
+```bash
+curl -s http://localhost:30010/nova4d/health | jq .
+```
+
+Queue a test command:
+
+```bash
+curl -s -X POST http://localhost:30010/nova4d/test/ping \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Nova4D Connected"}' | jq .
+```
+
+Run mock worker (no Cinema 4D required):
+
+```bash
+node examples/mock/mock_c4d_client.js
+```
+
+## Plugin Install (Cinema 4D)
+
+1. Copy `plugins/Nova4D/` into your Cinema 4D plugins directory.
+2. Launch Cinema 4D and enable the command `Nova4D - OpenClaw Bridge`.
+3. Start Nova4D server.
+4. Queue commands from OpenClaw/SDK/MCP.
+
+## Riley Mode Demo Prompt
+
+"Build a neon cyber city with a MoGraph cloner of 50 cubes, assign a Redshift material, animate scale from frame 0-60, and render frame 45."
+
+## Environment Variables
+
+- `NOVA4D_HOST`
+- `NOVA4D_PORT`
+- `NOVA4D_API_KEY`
+- `NOVA4D_COMMAND_LEASE_MS`
+- `NOVA4D_MAX_RETENTION`
+- `NOVA4D_IMPORT_DIR`
+- `NOVA4D_EXPORT_DIR`
+- `NOVA4D_MAX_UPLOAD_MB`
+- `NOVA4D_BLENDER_SCALE`
+- `NOVA4D_RATE_LIMIT_WINDOW_MS`
+- `NOVA4D_RATE_LIMIT_MAX`
+- `NOVA4D_C4D_PATH`
+- `NOVA4D_HEADLESS_TIMEOUT_SEC`
+
+## Notes
+
+- Plugin IDs are env-configurable (`NOVA4D_PLUGIN_ID_COMMAND`, `NOVA4D_PLUGIN_ID_MESSAGE`, `NOVA4D_SPECIAL_EVENT_ID`).
+- Complete the production closeout checklist in `docs/IMPORTANT_NOTES_COMPLETION.md`.

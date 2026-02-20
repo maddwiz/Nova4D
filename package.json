@@ -1,0 +1,21 @@
+{
+  "name": "nova4d",
+  "version": "1.0.0",
+  "description": "Cinema 4D bridge server and integrations for autonomous AI control",
+  "private": true,
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "check": "node --check server/index.js && node --check server/command_store.js && node --check extensions/openclaw/cinema4d-bridge/index.js && node --check examples/mock/mock_c4d_client.js",
+    "mock:c4d": "node examples/mock/mock_c4d_client.js",
+    "package": "bash scripts/package_release.sh v1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.41",
+    "express": "^4.21.2",
+    "multer": "^2.0.2"
+  }
+}

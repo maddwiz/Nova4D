@@ -1,0 +1,16 @@
+Nova4D End User License Agreement (EULA)
+Version 1.0.0 - February 2026
+
+Copyright (c) 2026 Nova4D.
+All rights reserved.
+
+You are granted a non-exclusive, non-transferable, revocable license to use Nova4D for personal or commercial production workflows under your purchased tier.
+
+You may not:
+- redistribute, resell, sublicense, or share Nova4D source or packaged files;
+- remove copyright/licensing notices;
+- reverse engineer the software for competitive cloning or derivative resale.
+
+Nova4D is provided "as is" without warranty of any kind. In no event shall the authors be liable for direct, indirect, incidental, or consequential damages resulting from use of the software.
+
+This agreement is governed by applicable local law in the operator's jurisdiction unless superseded by a signed commercial agreement.

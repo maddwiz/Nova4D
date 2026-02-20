@@ -1,0 +1,21 @@
+# Release Checklist
+
+- [ ] `npm run check` passes
+- [ ] `GET /nova4d/health` returns `status=ok`
+- [ ] `POST /nova4d/test/ping` queues successfully
+- [ ] Queue flow works (`/nova4d/commands` -> plugin/mock executes -> `/nova4d/results`)
+- [ ] API key protection tested with invalid and valid keys
+- [ ] Rate limiting tested (429 after threshold)
+- [ ] Blender upload route tested (`/nova4d/blender/import/upload`)
+- [ ] Headless launcher tested (`/nova4d/batch/render` + status polling)
+- [ ] OpenClaw extension loads and tools queue commands
+- [ ] Python SDK example works
+- [ ] MCP server starts and tools execute
+- [ ] PluginCafe IDs assigned and set via env vars (`NOVA4D_PLUGIN_ID_*`)
+- [ ] Real C4D action pass completed (see `docs/IMPORTANT_NOTES_COMPLETION.md`)
+- [ ] Cloner `parameter_id` values confirmed for count/mode in your C4D build
+- [ ] Renderer `engine_id` values confirmed for Redshift/Arnold if required
+- [ ] Package script produces `dist/Nova4D-v1.0.0.zip`
+- [ ] Zip contains plugin + server + sdk + docs + examples
+- [ ] EULA included
+- [ ] Demo script and launch copy finalized

@@ -1,0 +1,7 @@
+{
+  "id": "nova4d-cinema4d-bridge",
+  "name": "Nova4D Cinema 4D Bridge",
+  "version": "1.0.0",
+  "description": "Control Cinema 4D through Nova4D bridge endpoints",
+  "entry": "index.js"
+}
