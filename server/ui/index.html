@@ -98,6 +98,28 @@
           <button id="providerTestButton" class="secondary">Test Provider</button>
         </div>
         <div id="providerStatus" class="hint">Provider not tested in this session.</div>
+
+        <h3>Saved Provider Profiles</h3>
+        <label>
+          Saved profile
+          <select id="providerProfileSelect">
+            <option value="">No saved profiles</option>
+          </select>
+        </label>
+        <label>
+          Profile name
+          <input id="providerProfileName" type="text" placeholder="e.g. OpenAI GPT-4o Mini" autocomplete="off" />
+        </label>
+        <label class="toggle-row">
+          <input id="providerProfileRememberKey" type="checkbox" />
+          <span>Remember provider API key in this browser</span>
+        </label>
+        <div class="inline-actions">
+          <button id="providerProfileApplyButton" class="secondary">Apply Profile</button>
+          <button id="providerProfileSaveButton" class="secondary">Save Profile</button>
+          <button id="providerProfileDeleteButton" class="secondary">Delete Profile</button>
+        </div>
+        <div id="providerProfileStatus" class="hint">No provider profiles saved yet.</div>
       </article>
     </section>
 

@@ -10,6 +10,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 ## What it does
 
 - Connects provider settings (Builtin, OpenAI, OpenRouter, Anthropic, OpenAI-compatible)
+- Supports saved provider profiles for fast switching between AI backends
 - Tests provider connectivity before plan/run (`/nova4d/assistant/provider-test`)
 - Provides quick workflow templates for common one-click actions (deterministic mode uses `/nova4d/workflows/run`)
 - Includes a toggle to run templates through AI planning or deterministic workflow execution
@@ -30,9 +31,11 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Includes emergency stop control to cancel all queued/dispatched commands
 - Supports bulk retry of failed commands and status-filtered recent view
 - Persists non-secret Studio settings in browser local storage
+- Can optionally persist provider API keys in local browser profile storage
 
 ## Notes
 
-- Provider API keys are sent only per request; they are not persisted on the server.
+- Provider API keys are sent only per request; they are never persisted on the server.
+- Provider API keys are not saved in Studio profiles unless "Remember provider API key in this browser" is enabled.
 - If external provider planning fails, Nova4D falls back to a local rule-based planner.
 - Use `NOVA4D_API_KEY` in the UI if your server requires API authentication.

@@ -57,6 +57,13 @@ const nodes = {
   queuePlanButton: document.getElementById("queuePlanButton"),
   providerTestButton: document.getElementById("providerTestButton"),
   providerStatus: document.getElementById("providerStatus"),
+  providerProfileSelect: document.getElementById("providerProfileSelect"),
+  providerProfileName: document.getElementById("providerProfileName"),
+  providerProfileRememberKey: document.getElementById("providerProfileRememberKey"),
+  providerProfileApplyButton: document.getElementById("providerProfileApplyButton"),
+  providerProfileSaveButton: document.getElementById("providerProfileSaveButton"),
+  providerProfileDeleteButton: document.getElementById("providerProfileDeleteButton"),
+  providerProfileStatus: document.getElementById("providerProfileStatus"),
 };
 
 const providerDefaults = {
@@ -103,12 +110,16 @@ const WORKFLOW_TEMPLATES = [
 let recognition = null;
 let lastPlan = null;
 const STUDIO_SETTINGS_KEY = "nova4d.studio.settings.v1";
+const PROVIDER_PROFILE_SETTINGS_KEY = "nova4d.studio.provider_profiles.v1";
+const PROVIDER_PROFILE_NONE = "__none__";
+const PROVIDER_PROFILE_NAME_LIMIT = 80;
 let liveStreamSource = null;
 let liveStreamReconnectTimer = null;
 let liveStreamRefreshTimer = null;
 const LIVE_STREAM_RECONNECT_MS = 2000;
 const LIVE_STREAM_MAX_EVENTS = 40;
 let recentCommandMap = new Map();
+let providerProfiles = [];
 
 function escapeHtml(input) {
   return String(input)
@@ -140,6 +151,193 @@ function loadStoredSettings() {
   } catch (_err) {
     return {};
   }
+}
+
+function normalizeProviderKind(kind) {
+  const normalized = String(kind || "").trim().toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(providerDefaults, normalized)) {
+    return normalized;
+  }
+  return "builtin";
+}
+
+function sanitizeProviderProfileName(value) {
+  return String(value || "").trim().slice(0, PROVIDER_PROFILE_NAME_LIMIT);
+}
+
+function defaultProviderProfileName() {
+  const kind = normalizeProviderKind(nodes.providerKind.value);
+  const model = String(nodes.providerModel.value || "").trim();
+  return sanitizeProviderProfileName(model ? `${kind}:${model}` : kind) || "provider-profile";
+}
+
+function normalizeProviderProfile(row) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+  const name = sanitizeProviderProfileName(row.name);
+  if (!name) {
+    return null;
+  }
+  return {
+    name,
+    provider_kind: normalizeProviderKind(row.provider_kind || row.kind),
+    provider_base_url: String(row.provider_base_url || row.base_url || "").trim(),
+    provider_model: String(row.provider_model || row.model || "").trim(),
+    provider_api_key: String(row.provider_api_key || row.api_key || "").trim(),
+    updated_at: String(row.updated_at || new Date().toISOString()),
+  };
+}
+
+function loadProviderProfiles() {
+  try {
+    const raw = window.localStorage.getItem(PROVIDER_PROFILE_SETTINGS_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    const byName = new Map();
+    parsed.forEach((row) => {
+      const profile = normalizeProviderProfile(row);
+      if (!profile) {
+        return;
+      }
+      byName.set(profile.name.toLowerCase(), profile);
+    });
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  } catch (_err) {
+    return [];
+  }
+}
+
+function saveProviderProfiles() {
+  try {
+    window.localStorage.setItem(PROVIDER_PROFILE_SETTINGS_KEY, JSON.stringify(providerProfiles));
+  } catch (_err) {
+    // Ignore storage failures in restricted/private browser contexts.
+  }
+}
+
+function selectedProviderProfile() {
+  const selectedName = sanitizeProviderProfileName(nodes.providerProfileSelect.value);
+  if (!selectedName || selectedName === PROVIDER_PROFILE_NONE) {
+    return null;
+  }
+  return providerProfiles.find((profile) => profile.name === selectedName) || null;
+}
+
+function updateProviderProfileButtons() {
+  const hasSelection = Boolean(selectedProviderProfile());
+  nodes.providerProfileApplyButton.disabled = !hasSelection;
+  nodes.providerProfileDeleteButton.disabled = !hasSelection;
+}
+
+function setProviderProfileStatus(text, className = "hint") {
+  nodes.providerProfileStatus.textContent = text;
+  nodes.providerProfileStatus.className = className;
+}
+
+function renderProviderProfiles(preferredSelection = "") {
+  const requested = sanitizeProviderProfileName(preferredSelection);
+  const previous = sanitizeProviderProfileName(nodes.providerProfileSelect.value);
+  const targetSelection = requested || previous;
+  nodes.providerProfileSelect.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = PROVIDER_PROFILE_NONE;
+  placeholder.textContent = providerProfiles.length ? "Select saved profile" : "No saved profiles";
+  nodes.providerProfileSelect.appendChild(placeholder);
+
+  providerProfiles.forEach((profile) => {
+    const option = document.createElement("option");
+    option.value = profile.name;
+    const modelText = profile.provider_model ? ` | ${profile.provider_model}` : "";
+    option.textContent = `${profile.name} (${profile.provider_kind}${modelText})`;
+    nodes.providerProfileSelect.appendChild(option);
+  });
+
+  if (targetSelection && providerProfiles.some((profile) => profile.name === targetSelection)) {
+    nodes.providerProfileSelect.value = targetSelection;
+  } else {
+    nodes.providerProfileSelect.value = PROVIDER_PROFILE_NONE;
+  }
+  updateProviderProfileButtons();
+}
+
+function saveCurrentProviderProfile() {
+  const profileName = sanitizeProviderProfileName(nodes.providerProfileName.value) || defaultProviderProfileName();
+  const includeApiKey = Boolean(nodes.providerProfileRememberKey.checked);
+  const profile = normalizeProviderProfile({
+    name: profileName,
+    provider_kind: nodes.providerKind.value || "builtin",
+    provider_base_url: (nodes.providerBaseUrl.value || "").trim(),
+    provider_model: (nodes.providerModel.value || "").trim(),
+    provider_api_key: includeApiKey ? (nodes.providerApiKey.value || "").trim() : "",
+    updated_at: new Date().toISOString(),
+  });
+  if (!profile) {
+    setProviderProfileStatus("Enter a valid profile name before saving.", "status-warn");
+    return;
+  }
+
+  const existingIndex = providerProfiles.findIndex((item) => item.name.toLowerCase() === profile.name.toLowerCase());
+  if (existingIndex >= 0) {
+    providerProfiles.splice(existingIndex, 1, profile);
+  } else {
+    providerProfiles.push(profile);
+  }
+  providerProfiles.sort((a, b) => a.name.localeCompare(b.name));
+  saveProviderProfiles();
+  renderProviderProfiles(profile.name);
+  nodes.providerProfileName.value = profile.name;
+  const keyMessage = includeApiKey ? " API key stored." : " API key not stored.";
+  setProviderProfileStatus(`Saved profile "${profile.name}".${keyMessage}`, "status-ok");
+}
+
+function applySelectedProviderProfile() {
+  const profile = selectedProviderProfile();
+  if (!profile) {
+    setProviderProfileStatus("Choose a saved profile first.", "status-warn");
+    return;
+  }
+  nodes.providerKind.value = profile.provider_kind;
+  nodes.providerBaseUrl.value = profile.provider_base_url;
+  nodes.providerModel.value = profile.provider_model;
+  if (profile.provider_api_key) {
+    nodes.providerApiKey.value = profile.provider_api_key;
+  } else {
+    nodes.providerApiKey.value = "";
+  }
+  nodes.providerProfileName.value = profile.name;
+  applyProviderDefaults();
+  setProviderStatus(`Loaded provider profile "${profile.name}". Test before running.`, "hint");
+  setProviderProfileStatus(
+    profile.provider_api_key
+      ? `Applied profile "${profile.name}" with stored API key.`
+      : `Applied profile "${profile.name}" without stored API key.`,
+    "status-ok"
+  );
+  saveStudioSettings();
+}
+
+function deleteSelectedProviderProfile() {
+  const profile = selectedProviderProfile();
+  if (!profile) {
+    setProviderProfileStatus("Choose a saved profile to delete.", "status-warn");
+    return;
+  }
+  const confirmed = window.confirm(`Delete provider profile "${profile.name}"?`);
+  if (!confirmed) {
+    return;
+  }
+  providerProfiles = providerProfiles.filter((item) => item.name !== profile.name);
+  saveProviderProfiles();
+  renderProviderProfiles();
+  nodes.providerProfileName.value = "";
+  setProviderProfileStatus(`Deleted profile "${profile.name}".`, "hint");
 }
 
 function saveStudioSettings() {
@@ -1234,6 +1432,35 @@ nodes.runTemplateButton.addEventListener("click", runTemplateWorkflow);
 nodes.queuePlanButton.addEventListener("click", queueLastPlan);
 nodes.providerTestButton.addEventListener("click", testProviderConnection);
 nodes.recentTableBody.addEventListener("click", handleRecentTableAction);
+nodes.providerProfileSelect.addEventListener("change", () => {
+  const profile = selectedProviderProfile();
+  if (profile) {
+    nodes.providerProfileName.value = profile.name;
+    setProviderProfileStatus(`Selected profile "${profile.name}".`, "hint");
+  } else if (providerProfiles.length === 0) {
+    setProviderProfileStatus("No provider profiles saved yet.", "hint");
+  } else {
+    setProviderProfileStatus("Select a saved profile to apply or delete.", "hint");
+  }
+  updateProviderProfileButtons();
+});
+nodes.providerProfileApplyButton.addEventListener("click", applySelectedProviderProfile);
+nodes.providerProfileSaveButton.addEventListener("click", saveCurrentProviderProfile);
+nodes.providerProfileDeleteButton.addEventListener("click", deleteSelectedProviderProfile);
+nodes.providerProfileName.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") {
+    return;
+  }
+  event.preventDefault();
+  saveCurrentProviderProfile();
+});
+nodes.providerProfileRememberKey.addEventListener("change", () => {
+  if (nodes.providerProfileRememberKey.checked) {
+    setProviderProfileStatus("Profile saves will include provider API key.", "status-warn");
+  } else {
+    setProviderProfileStatus("Profile saves will exclude provider API key.", "hint");
+  }
+});
 
 [
   nodes.providerBaseUrl,
@@ -1289,12 +1516,21 @@ window.addEventListener("beforeunload", () => {
   nodes.workflowRenderOutput.value = "/tmp/nova4d-workflow-frame.png";
   nodes.recentStatusFilter.value = "";
   nodes.refreshSceneContext.disabled = false;
+  nodes.providerProfileName.value = "";
+  nodes.providerProfileRememberKey.checked = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
   nodes.preflightChecks.innerHTML = "<li class='hint'>Run preflight to validate local setup.</li>";
   nodes.systemStatusList.innerHTML = "<li class='hint'>Refresh system status to load readiness details.</li>";
+  providerProfiles = loadProviderProfiles();
+  renderProviderProfiles();
   applyStoredSettings(loadStoredSettings());
   applyProviderDefaults();
   setProviderStatus("Provider not tested in this session.", "hint");
+  if (providerProfiles.length > 0) {
+    setProviderProfileStatus("Saved provider profiles loaded.", "hint");
+  } else {
+    setProviderProfileStatus("No provider profiles saved yet.", "hint");
+  }
   setStreamStatus("Live stream offline.", "hint");
   nodes.systemStatusSummary.className = "hint";
   nodes.systemStatusSummary.textContent = "System status not loaded.";

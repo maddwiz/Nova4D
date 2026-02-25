@@ -66,6 +66,7 @@ Start the server, then open:
 From the UI you can:
 
 - Connect AI provider settings (Builtin/OpenAI/OpenRouter/Anthropic/OpenAI-compatible)
+- Save and switch reusable provider profiles for one-click AI setup
 - Test provider connectivity before planning/running
 - Use one-click quick workflow templates for common tasks (AI-planned or deterministic via `/nova4d/workflows/run`)
 - Toggle template mode between AI planning and deterministic execution
@@ -80,6 +81,7 @@ From the UI you can:
 - Query scene graph data via `/nova4d/scene/graph`, `/nova4d/scene/objects`, `/nova4d/scene/materials`, `/nova4d/scene/object`
 - Use context-aware planning by default (planner reads latest live scene snapshot)
 - Persist non-secret Studio settings in browser local storage
+- Optionally persist provider API keys in saved browser profiles
 - Watch live queue lifecycle updates in Studio via `/nova4d/stream`
 - Inspect recent command execution in one place
 - Manage recent commands directly in Studio (view details, requeue, cancel queued jobs)
