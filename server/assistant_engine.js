@@ -222,7 +222,7 @@ function fallbackPlanFromText(input, maxCommands, sceneContext = null) {
     commands.push({
       route: "/nova4d/material/create-redshift",
       payload: { name: "AIRedshiftMat" },
-      reason: "Create Redshift material placeholder.",
+      reason: "Create a Redshift material.",
     });
   }
 

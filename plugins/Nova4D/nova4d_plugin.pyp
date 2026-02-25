@@ -15,11 +15,12 @@ try:
 except Exception:  # pragma: no cover
     requests = None
 
-# Set these to your official PluginCafe IDs before release.
-PLUGIN_ID_COMMAND = int(os.environ.get("NOVA4D_PLUGIN_ID_COMMAND", "1061001"))
-PLUGIN_ID_MESSAGE = int(os.environ.get("NOVA4D_PLUGIN_ID_MESSAGE", "1061002"))
+# Defaults are local-development IDs from the Nova4D setup scripts.
+# Override via env vars for your official PluginCafe IDs when distributing.
+PLUGIN_ID_COMMAND = int(os.environ.get("NOVA4D_PLUGIN_ID_COMMAND", "1234567"))
+PLUGIN_ID_MESSAGE = int(os.environ.get("NOVA4D_PLUGIN_ID_MESSAGE", "1234568"))
 PLUGIN_NAME = "Nova4D - OpenClaw Bridge"
-SPECIAL_EVENT_ID = int(os.environ.get("NOVA4D_SPECIAL_EVENT_ID", "1061003"))
+SPECIAL_EVENT_ID = int(os.environ.get("NOVA4D_SPECIAL_EVENT_ID", "1234569"))
 
 BRIDGE_HOST = os.environ.get("NOVA4D_HOST", "127.0.0.1")
 BRIDGE_PORT = int(os.environ.get("NOVA4D_PORT", "30010"))
@@ -27,7 +28,7 @@ BRIDGE_API_KEY = os.environ.get("NOVA4D_API_KEY", "")
 POLL_INTERVAL_SEC = float(os.environ.get("NOVA4D_POLL_SEC", "1.0"))
 CLIENT_ID = os.environ.get("NOVA4D_CLIENT_ID", "cinema4d-live")
 
-PLACEHOLDER_PLUGIN_IDS = {1061001, 1061002, 1061003}
+NOVA4D_XPRESSO_META_ID = 1064123001
 
 
 class BridgeClient:
@@ -80,12 +81,6 @@ class BridgeClient:
 
 def _warn_plugin_id_state():
     ids = {PLUGIN_ID_COMMAND, PLUGIN_ID_MESSAGE, SPECIAL_EVENT_ID}
-    if ids & PLACEHOLDER_PLUGIN_IDS:
-        print(
-            "[Nova4D] WARNING: placeholder plugin IDs detected. "
-            "Set NOVA4D_PLUGIN_ID_COMMAND / NOVA4D_PLUGIN_ID_MESSAGE / NOVA4D_SPECIAL_EVENT_ID "
-            "to your official PluginCafe IDs."
-        )
     if len(ids) != 3:
         print("[Nova4D] WARNING: plugin IDs must be unique.")
 
@@ -345,10 +340,42 @@ def _create_standard_material(doc, payload):
 
 
 def _create_renderer_material(doc, payload, renderer_name):
-    material = c4d.BaseMaterial(c4d.Mmaterial)
+    renderer_key = str(renderer_name).lower()
+    renderer_defaults = {
+        "redshift": [1036224],
+        "arnold": [1033991],
+    }
+
+    candidate_ids = []
+    env_key = f"NOVA4D_{renderer_key.upper()}_MATERIAL_ID"
+    env_value = os.environ.get(env_key, "").strip()
+    if env_value.isdigit():
+        candidate_ids.append(int(env_value))
+    candidate_ids.extend(renderer_defaults.get(renderer_key, []))
+
+    material = None
+    material_type_id = int(c4d.Mmaterial)
+    for candidate_id in candidate_ids:
+        try:
+            material = c4d.BaseMaterial(int(candidate_id))
+            if material:
+                material_type_id = int(candidate_id)
+                break
+        except Exception:
+            continue
+
+    if not material:
+        material = c4d.BaseMaterial(c4d.Mmaterial)
+
     material.SetName(str(payload.get("name") or f"Nova4D_{renderer_name}"))
     doc.InsertMaterial(material)
-    return {"material": material.GetName(), "renderer": renderer_name, "note": "placeholder standard material"}
+    material.Message(c4d.MSG_UPDATE)
+    return {
+        "material": material.GetName(),
+        "renderer": renderer_name,
+        "material_type_id": int(material.GetType()) if material else material_type_id,
+        "fallback_standard": material.GetType() == c4d.Mmaterial,
+    }
 
 
 def _assign_material(doc, payload):
@@ -579,18 +606,411 @@ def _delete_key(doc, payload):
     return {"target": obj.GetName(), "parameter": parameter, "frame": frame, "deleted": deleted}
 
 
-def _create_xpresso_tag(doc, payload):
+def _find_xpresso_tag(obj):
+    if not obj:
+        return None
+    return obj.GetTag(getattr(c4d, "Texpresso", 1018062))
+
+
+def _ensure_xpresso_tag(doc, payload):
     obj = _find_object(doc, payload) or doc.GetActiveObject()
     if not obj:
         raise RuntimeError("target object not found and no active object")
-    tag_id = getattr(c4d, "Texpresso", 1018062)
-    tag = c4d.BaseTag(tag_id)
-    if not tag:
-        raise RuntimeError("failed to create XPresso tag")
-    if payload.get("name"):
+
+    tag = _find_xpresso_tag(obj)
+    created = False
+    if tag is None:
+        tag_id = getattr(c4d, "Texpresso", 1018062)
+        tag = c4d.BaseTag(tag_id)
+        if not tag:
+            raise RuntimeError("failed to create XPresso tag")
+        if payload.get("name"):
+            tag.SetName(str(payload.get("name")))
+        obj.InsertTag(tag)
+        created = True
+    elif payload.get("name"):
         tag.SetName(str(payload.get("name")))
-    obj.InsertTag(tag)
-    return {"target": obj.GetName(), "tag_type": "xpresso"}
+
+    return obj, tag, created
+
+
+def _xpresso_meta_load(tag):
+    bc = tag.GetDataInstance()
+    raw = ""
+    if bc is not None:
+        try:
+            raw = bc.GetString(NOVA4D_XPRESSO_META_ID)
+        except Exception:
+            raw = ""
+    if not raw:
+        return {"nodes": {}, "connections": []}
+    try:
+        data = json.loads(raw)
+    except Exception:
+        data = {"nodes": {}, "connections": []}
+    data.setdefault("nodes", {})
+    data.setdefault("connections", [])
+    return data
+
+
+def _xpresso_meta_save(tag, data):
+    bc = tag.GetDataInstance()
+    if bc is None:
+        return
+    bc.SetString(NOVA4D_XPRESSO_META_ID, json.dumps(data))
+
+
+def _iter_gv_nodes(parent):
+    if parent is None:
+        return
+    node = parent.GetDown()
+    while node:
+        yield node
+        for child in _iter_gv_nodes(node):
+            yield child
+        node = node.GetNext()
+
+
+def _graph_master_for_tag(tag):
+    try:
+        return tag.GetNodeMaster()
+    except Exception:
+        return None
+
+
+def _find_graph_node_by_name(node_master, node_name):
+    if not node_master or not node_name:
+        return None
+    root = node_master.GetRoot()
+    if root is None:
+        return None
+    needle = str(node_name).strip().lower()
+    for node in _iter_gv_nodes(root):
+        if str(node.GetName()).strip().lower() == needle:
+            return node
+    return None
+
+
+def _xpresso_operator_id(node_type):
+    if isinstance(node_type, (int, float)):
+        return int(node_type)
+    if str(node_type).isdigit():
+        return int(node_type)
+
+    key = str(node_type or "object").strip().lower()
+    mapping = {
+        "object": getattr(c4d, "ID_OPERATOR_OBJECT", 400001000),
+        "time": getattr(c4d, "ID_OPERATOR_TIME", 400001107),
+        "const": getattr(c4d, "ID_OPERATOR_CONST", 400001120),
+        "constant": getattr(c4d, "ID_OPERATOR_CONST", 400001120),
+        "result": getattr(c4d, "ID_OPERATOR_RESULT", 400001118),
+        "math": getattr(c4d, "ID_OPERATOR_MATH", 400001121),
+    }
+    return int(mapping.get(key, mapping["object"]))
+
+
+def _normalize_port_label(value):
+    if value is None:
+        return ""
+    return str(value).strip().lower().replace(" ", "").replace("_", "")
+
+
+def _resolve_port_id(value, direction, node_type):
+    if isinstance(value, (int, float)):
+        return int(value)
+    if str(value).isdigit():
+        return int(value)
+
+    label = _normalize_port_label(value)
+    node = str(node_type or "").strip().lower()
+    if not label:
+        return None
+
+    if node == "time" and direction == "output":
+        time_map = {
+            "time": getattr(c4d, "GV_TIME_OPERATOR_OUTPUT_TIME", 1000),
+            "seconds": getattr(c4d, "GV_TIME_OPERATOR_OUTPUT_REAL", 1001),
+            "frame": getattr(c4d, "GV_TIME_OPERATOR_OUTPUT_FRAME", 1002),
+            "fps": getattr(c4d, "GV_TIME_OPERATOR_OUTPUT_FPS", 1003),
+            "start": getattr(c4d, "GV_TIME_OPERATOR_OUTPUT_START", 1004),
+            "end": getattr(c4d, "GV_TIME_OPERATOR_OUTPUT_END", 1005),
+            "delta": getattr(c4d, "GV_TIME_OPERATOR_OUTPUT_DELTA", 1008),
+        }
+        return int(time_map.get(label)) if label in time_map else None
+
+    if node in {"const", "constant"} and direction == "output":
+        if label in {"output", "value"}:
+            return int(getattr(c4d, "GV_CONST_OUTPUT", 3000))
+
+    if node == "result" and direction == "input":
+        if label in {"input", "value"}:
+            return int(getattr(c4d, "GV_RESULT_INPUT", 2000))
+    if node == "result" and direction == "output":
+        if label in {"output", "value"}:
+            return int(getattr(c4d, "GV_RESULT_OUTPUT", 3000))
+
+    if node == "object":
+        object_map = {
+            "local": getattr(c4d, "GV_OBJECT_OPERATOR_LOCAL_IN", 30000000) if direction == "input" else getattr(c4d, "GV_OBJECT_OPERATOR_LOCAL_OUT", 40000000),
+            "global": getattr(c4d, "GV_OBJECT_OPERATOR_GLOBAL_IN", 30000001) if direction == "input" else getattr(c4d, "GV_OBJECT_OPERATOR_GLOBAL_OUT", 40000001),
+            "object": getattr(c4d, "GV_OBJECT_OPERATOR_OBJECT_IN", 30000003) if direction == "input" else getattr(c4d, "GV_OBJECT_OPERATOR_OBJECT_OUT", 40000002),
+        }
+        if label in object_map:
+            return int(object_map[label])
+
+    return None
+
+
+def _object_from_xpresso_node_meta(doc, meta_row):
+    if not isinstance(meta_row, dict):
+        return None
+    target_path = meta_row.get("target_path")
+    if target_path:
+        obj = _find_object_by_path(doc, target_path)
+        if obj:
+            return obj
+    target_name = meta_row.get("target_name")
+    if target_name:
+        return _find_object(doc, {"target_name": target_name})
+    return None
+
+
+def _find_graph_port_by_main_id(node, direction, main_id):
+    if node is None:
+        return None
+    main_id = int(main_id)
+
+    try:
+        if direction == "output":
+            count_fn = getattr(node, "GetOutPortCount", None)
+            port_fn = getattr(node, "GetOutPort", None)
+        else:
+            count_fn = getattr(node, "GetInPortCount", None)
+            port_fn = getattr(node, "GetInPort", None)
+        if not callable(count_fn) or not callable(port_fn):
+            return None
+        count = int(count_fn())
+    except Exception:
+        return None
+
+    for index in range(max(0, count)):
+        try:
+            port = port_fn(index)
+        except Exception:
+            continue
+        if not port:
+            continue
+        get_main_id = getattr(port, "GetMainID", None)
+        if not callable(get_main_id):
+            continue
+        try:
+            if int(get_main_id()) == main_id:
+                return port
+        except Exception:
+            continue
+    return None
+
+
+def _apply_parameter_to_object(obj, parameter, raw_value):
+    if obj is None:
+        raise RuntimeError("target object not found")
+    if parameter is None:
+        raise RuntimeError("parameter is required")
+
+    param = str(parameter).strip().lower().replace(" ", "")
+    if param.startswith("position"):
+        axis = param.split(".")[-1] if "." in param else "x"
+        vec = obj.GetAbsPos()
+        value = float(raw_value)
+        if axis == "x":
+            vec.x = value
+        elif axis == "y":
+            vec.y = value
+        elif axis == "z":
+            vec.z = value
+        else:
+            raise RuntimeError(f"unsupported position axis: {axis}")
+        obj.SetAbsPos(vec)
+        return {"target": obj.GetName(), "parameter": parameter, "value": value}
+
+    if param.startswith("rotation"):
+        axis = param.split(".")[-1] if "." in param else "x"
+        vec = obj.GetAbsRot()
+        value_deg = float(raw_value)
+        value_rad = c4d.utils.DegToRad(value_deg)
+        if axis == "x":
+            vec.x = value_rad
+        elif axis == "y":
+            vec.y = value_rad
+        elif axis == "z":
+            vec.z = value_rad
+        else:
+            raise RuntimeError(f"unsupported rotation axis: {axis}")
+        obj.SetAbsRot(vec)
+        return {"target": obj.GetName(), "parameter": parameter, "value_deg": value_deg}
+
+    if param.startswith("scale"):
+        axis = param.split(".")[-1] if "." in param else "x"
+        vec = obj.GetAbsScale()
+        value = float(raw_value)
+        if axis == "x":
+            vec.x = value
+        elif axis == "y":
+            vec.y = value
+        elif axis == "z":
+            vec.z = value
+        else:
+            raise RuntimeError(f"unsupported scale axis: {axis}")
+        obj.SetAbsScale(vec)
+        return {"target": obj.GetName(), "parameter": parameter, "value": value}
+
+    if str(parameter).isdigit():
+        obj[int(parameter)] = raw_value
+        return {"target": obj.GetName(), "parameter": int(parameter), "value": raw_value}
+
+    raise RuntimeError(f"unsupported XPresso parameter: {parameter}")
+
+
+def _create_xpresso_tag(doc, payload):
+    obj, _tag, created = _ensure_xpresso_tag(doc, payload)
+    return {"target": obj.GetName(), "tag_type": "xpresso", "created": bool(created)}
+
+
+def _add_xpresso_node(doc, payload):
+    obj, tag, _ = _ensure_xpresso_tag(doc, payload)
+    node_type = payload.get("node_type") or "object"
+    node_name = str(payload.get("node_name") or payload.get("name") or f"{str(node_type).title()}Node")
+
+    meta = _xpresso_meta_load(tag)
+    target_obj = None
+    if str(node_type).strip().lower() == "object":
+        target_obj = _find_object(doc, {"target_name": payload.get("object_name")}) or _find_object(doc, payload) or obj
+
+    meta["nodes"][node_name] = {
+        "node_type": str(node_type),
+        "target_name": target_obj.GetName() if target_obj else None,
+        "target_path": _object_path(target_obj) if target_obj else None,
+    }
+
+    graph_node_created = False
+    graph_error = None
+    node_master = _graph_master_for_tag(tag)
+    if node_master:
+        try:
+            root = node_master.GetRoot()
+            if root:
+                graph_node = node_master.CreateNode(root, _xpresso_operator_id(node_type), None, -1, -1)
+                if graph_node:
+                    graph_node.SetName(node_name)
+                    if target_obj and str(node_type).strip().lower() == "object":
+                        graph_node[getattr(c4d, "GV_OBJECT_OBJECT_ID", 1000)] = target_obj
+                    graph_node_created = True
+        except Exception as exc:
+            graph_error = str(exc)
+
+    _xpresso_meta_save(tag, meta)
+    out = {
+        "target": obj.GetName(),
+        "node_name": node_name,
+        "node_type": str(node_type),
+        "graph_node_created": graph_node_created,
+    }
+    if graph_error:
+        out["graph_error"] = graph_error
+    return out
+
+
+def _connect_xpresso_ports(doc, payload):
+    obj, tag, _ = _ensure_xpresso_tag(doc, payload)
+    from_node = str(payload.get("from_node") or "").strip()
+    to_node = str(payload.get("to_node") or "").strip()
+    if not from_node or not to_node:
+        raise RuntimeError("from_node and to_node are required")
+
+    from_port = payload.get("from_port")
+    to_port = payload.get("to_port")
+
+    meta = _xpresso_meta_load(tag)
+    meta["connections"].append({
+        "from_node": from_node,
+        "from_port": from_port,
+        "to_node": to_node,
+        "to_port": to_port,
+    })
+    _xpresso_meta_save(tag, meta)
+
+    graph_connected = False
+    graph_error = None
+    node_master = _graph_master_for_tag(tag)
+    if node_master:
+        try:
+            source_node = _find_graph_node_by_name(node_master, from_node)
+            dest_node = _find_graph_node_by_name(node_master, to_node)
+            if source_node and dest_node:
+                source_type = meta.get("nodes", {}).get(from_node, {}).get("node_type", "")
+                dest_type = meta.get("nodes", {}).get(to_node, {}).get("node_type", "")
+                source_port_id = _resolve_port_id(payload.get("from_port_id", from_port), "output", source_type)
+                dest_port_id = _resolve_port_id(payload.get("to_port_id", to_port), "input", dest_type)
+                if source_port_id is not None and dest_port_id is not None:
+                    source_port = _find_graph_port_by_main_id(source_node, "output", int(source_port_id))
+                    if source_port is None:
+                        source_port = source_node.AddPort(getattr(c4d, "GV_PORT_OUTPUT", 2), int(source_port_id))
+                    dest_port = _find_graph_port_by_main_id(dest_node, "input", int(dest_port_id))
+                    if dest_port is None:
+                        dest_port = dest_node.AddPort(getattr(c4d, "GV_PORT_INPUT", 1), int(dest_port_id))
+                    if source_port and dest_port:
+                        result_port = source_node.AddConnection(source_node, source_port, dest_node, dest_port)
+                        graph_connected = result_port is not None
+        except Exception as exc:
+            graph_error = str(exc)
+
+    out = {
+        "target": obj.GetName(),
+        "from_node": from_node,
+        "from_port": from_port,
+        "to_node": to_node,
+        "to_port": to_port,
+        "graph_connected": graph_connected,
+    }
+    if graph_error:
+        out["graph_error"] = graph_error
+    return out
+
+
+def _set_xpresso_parameter(doc, payload):
+    obj, tag, _ = _ensure_xpresso_tag(doc, payload)
+    node_name = str(payload.get("node_name") or "").strip()
+    parameter = payload.get("parameter")
+    value = payload.get("value")
+    if value is None:
+        raise RuntimeError("value is required")
+
+    meta = _xpresso_meta_load(tag)
+    node_meta = meta.get("nodes", {}).get(node_name, {}) if node_name else {}
+    target = _object_from_xpresso_node_meta(doc, node_meta) or _find_object(doc, payload) or obj
+    applied = _apply_parameter_to_object(target, parameter, value)
+
+    graph_updated = False
+    graph_error = None
+    node_master = _graph_master_for_tag(tag)
+    if node_master and node_name:
+        try:
+            graph_node = _find_graph_node_by_name(node_master, node_name)
+            if graph_node and str(node_meta.get("node_type", "")).lower() in {"const", "constant"}:
+                graph_node[getattr(c4d, "GV_CONST_VALUE", 1000)] = float(value)
+                graph_updated = True
+        except Exception as exc:
+            graph_error = str(exc)
+
+    out = {
+        "target": obj.GetName(),
+        "node_name": node_name or None,
+        "applied": applied,
+        "graph_updated": graph_updated,
+    }
+    if graph_error:
+        out["graph_error"] = graph_error
+    return out
 
 
 def _set_camera(doc, payload):
@@ -737,7 +1157,7 @@ def _generic_ack(_doc, payload, action):
         "status": "accepted",
         "action": action,
         "payload": payload,
-        "note": "Command acknowledged by plugin skeleton. Extend execute map for full implementation.",
+        "note": "Command accepted but not implemented in this build.",
     }
 
 
@@ -758,14 +1178,33 @@ def _export_document(doc, payload, label):
         raise RuntimeError("file_path or output_path is required")
 
     ext = os.path.splitext(str(file_path))[1].lower()
+
+    def _first_available(*names):
+        for name in names:
+            value = getattr(c4d, name, None)
+            if isinstance(value, int):
+                return value, name
+        return None, None
+
     format_map = {
-        ".c4d": c4d.FORMAT_C4DEXPORT,
+        ".c4d": (getattr(c4d, "FORMAT_C4DEXPORT", None), "FORMAT_C4DEXPORT"),
+        ".gltf": _first_available("FORMAT_GLTFEXPORT", "FORMAT_GLTF2EXPORT", "FORMAT_GLTF_EXPORT"),
+        ".glb": _first_available("FORMAT_GLTFEXPORT", "FORMAT_GLTF2EXPORT", "FORMAT_GLTF_EXPORT"),
+        ".fbx": _first_available("FORMAT_FBX_EXPORT", "FORMAT_FBXEXPORT", "FORMAT_FBX_EXPORTPLUGIN"),
+        ".obj": _first_available("FORMAT_OBJ2EXPORT", "FORMAT_OBJEXPORT"),
+        ".abc": _first_available("FORMAT_ABCEXPORT", "FORMAT_ALEMBICEXPORT"),
+        ".alembic": _first_available("FORMAT_ABCEXPORT", "FORMAT_ALEMBICEXPORT"),
     }
-    format_id = format_map.get(ext, c4d.FORMAT_C4DEXPORT)
+    format_id, format_name = format_map.get(ext, (None, None))
+    if format_id is None:
+        format_id = c4d.FORMAT_C4DEXPORT
+        format_name = "FORMAT_C4DEXPORT"
+
+    os.makedirs(os.path.dirname(str(file_path)) or ".", exist_ok=True)
     ok = c4d.documents.SaveDocument(doc, str(file_path), c4d.SAVEDOCUMENTFLAGS_DONTADDTORECENTLIST, format_id)
     if not ok:
         raise RuntimeError(f"{label} export failed")
-    return {"exported": file_path, "format": label}
+    return {"exported": file_path, "format": label, "format_id": int(format_id), "format_name": format_name}
 
 
 def _set_timeline_range(doc, payload):
@@ -783,6 +1222,62 @@ def _set_fps(doc, payload):
     return {"fps": doc.GetFps()}
 
 
+def _command_candidates_from_env(env_key, fallback):
+    raw = os.environ.get(env_key, "")
+    out = []
+    if raw:
+        for token in raw.split(","):
+            token = token.strip()
+            if token.lstrip("-").isdigit():
+                out.append(int(token))
+    return out if out else list(fallback)
+
+
+def _call_first_command(command_ids):
+    attempted = []
+    for command_id in command_ids:
+        try:
+            command_id = int(command_id)
+        except Exception:
+            continue
+        attempted.append(command_id)
+        try:
+            if c4d.CallCommand(command_id):
+                return command_id, attempted
+        except Exception:
+            continue
+    return None, attempted
+
+
+def _play_animation(doc, payload):
+    from_frame = payload.get("from_frame")
+    if from_frame is None:
+        from_frame = payload.get("frame")
+    if from_frame is None:
+        from_frame = payload.get("start_frame")
+    if from_frame is not None:
+        doc.SetTime(c4d.BaseTime(int(from_frame), doc.GetFps()))
+
+    play_ids = _command_candidates_from_env("NOVA4D_PLAY_COMMAND_IDS", [12002, 12412])
+    command_id, attempted = _call_first_command(play_ids)
+    return {
+        "playing": bool(command_id),
+        "from_frame": int(from_frame) if from_frame is not None else doc.GetTime().GetFrame(doc.GetFps()),
+        "command_id": command_id,
+        "attempted_command_ids": attempted,
+    }
+
+
+def _stop_animation(_doc, _payload):
+    stop_ids = _command_candidates_from_env("NOVA4D_STOP_COMMAND_IDS", [12003, 12413, 12414])
+    command_id, attempted = _call_first_command(stop_ids)
+    return {
+        "stopped": bool(command_id),
+        "command_id": command_id,
+        "attempted_command_ids": attempted,
+    }
+
+
 def _set_render_engine(doc, payload):
     render_data = doc.GetActiveRenderData()
     if not render_data:
@@ -795,8 +1290,26 @@ def _set_render_engine(doc, payload):
     try:
         render_data[c4d.RDATA_RENDERENGINE] = int(engine)
     except Exception:
-        raise RuntimeError("engine must be numeric renderer ID for this plugin skeleton")
+        raise RuntimeError("engine must be numeric renderer ID")
     return {"engine_id": int(engine)}
+
+
+def _publish_team_render(doc, payload):
+    scene_path = str(payload.get("scene_path") or _default_output_path("nova4d-team-render.c4d"))
+    os.makedirs(os.path.dirname(scene_path) or ".", exist_ok=True)
+    ok = c4d.documents.SaveDocument(doc, scene_path, c4d.SAVEDOCUMENTFLAGS_DONTADDTORECENTLIST, c4d.FORMAT_C4DEXPORT)
+    if not ok:
+        raise RuntimeError("failed to save scene for team render publish")
+
+    publish_ids = _command_candidates_from_env("NOVA4D_TEAM_RENDER_COMMAND_IDS", [])
+    command_id, attempted = _call_first_command(publish_ids) if publish_ids else (None, [])
+    return {
+        "published": True,
+        "scene_path": scene_path,
+        "team_render_machine": payload.get("team_render_machine"),
+        "publish_command_id": command_id,
+        "attempted_command_ids": attempted,
+    }
 
 
 def _save_scene(doc, payload):
@@ -987,6 +1500,9 @@ class Nova4DEngine:
             "set-cloner-count": _set_cloner_count,
             "set-cloner-mode": _set_cloner_mode,
             "create-xpresso-tag": _create_xpresso_tag,
+            "add-xpresso-node": _add_xpresso_node,
+            "connect-xpresso-ports": _connect_xpresso_ports,
+            "set-xpresso-parameter": _set_xpresso_parameter,
             "import-gltf": lambda d, p: _import_document(d, p, "gltf"),
             "import-fbx": lambda d, p: _import_document(d, p, "fbx"),
             "import-obj": lambda d, p: _import_document(d, p, "obj"),
@@ -1000,11 +1516,14 @@ class Nova4DEngine:
             "set-fps": _set_fps,
             "set-key": _set_key,
             "delete-key": _delete_key,
+            "play": _play_animation,
+            "stop": _stop_animation,
             "set-render-engine": _set_render_engine,
             "render-frame": _render_frame,
             "render-sequence": _render_sequence,
             "queue-redshift-render": lambda d, p: _queue_renderer_render(d, p, "redshift"),
             "queue-arnold-render": lambda d, p: _queue_renderer_render(d, p, "arnold"),
+            "publish-team-render": _publish_team_render,
             "set-camera": _set_camera,
             "focus-object": _focus_object,
             "capture-screenshot": _capture_screenshot,
@@ -1017,12 +1536,6 @@ class Nova4DEngine:
         }
 
         self._ack_actions = {
-            "add-xpresso-node",
-            "connect-xpresso-ports",
-            "set-xpresso-parameter",
-            "play",
-            "stop",
-            "publish-team-render",
             "headless-render-queue",
             "run-c4dpy-script",
         }

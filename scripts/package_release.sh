@@ -19,6 +19,7 @@ copy_tree() {
     --exclude 'node_modules' \
     --exclude '__pycache__' \
     --exclude '*.pyc' \
+    --exclude '.DS_Store' \
     --exclude '*.log' \
     --exclude 'dist' \
     "${src}" "${dst}"

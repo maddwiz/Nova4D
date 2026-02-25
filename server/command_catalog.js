@@ -74,12 +74,12 @@ const ROUTE_RULES = {
     optional: ["name", "color"],
   },
   "/nova4d/material/create-redshift": {
-    description: "Create redshift material placeholder.",
+    description: "Create Redshift material (falls back if renderer plugin is unavailable).",
     risk: "safe",
     optional: ["name"],
   },
   "/nova4d/material/create-arnold": {
-    description: "Create arnold material placeholder.",
+    description: "Create Arnold material (falls back if renderer plugin is unavailable).",
     risk: "safe",
     optional: ["name"],
   },
@@ -148,15 +148,15 @@ const ROUTE_RULES = {
     optional: ["target_name", "name"],
   },
   "/nova4d/xpresso/add-node": {
-    description: "Add XPresso node (ack in plugin skeleton).",
+    description: "Add XPresso node to tag graph.",
     risk: "moderate",
   },
   "/nova4d/xpresso/connect": {
-    description: "Connect XPresso ports (ack in plugin skeleton).",
+    description: "Connect XPresso ports between nodes.",
     risk: "moderate",
   },
   "/nova4d/xpresso/set-parameter": {
-    description: "Set XPresso parameter (ack in plugin skeleton).",
+    description: "Set XPresso parameter and apply target value.",
     risk: "moderate",
   },
 
@@ -180,11 +180,11 @@ const ROUTE_RULES = {
     optional: ["start_frame", "end_frame"],
   },
   "/nova4d/animation/play": {
-    description: "Play animation (ack in plugin skeleton).",
+    description: "Play animation from frame/time cursor.",
     risk: "safe",
   },
   "/nova4d/animation/stop": {
-    description: "Stop animation (ack in plugin skeleton).",
+    description: "Stop animation playback.",
     risk: "safe",
   },
   "/nova4d/animation/set-fps": {
@@ -217,7 +217,7 @@ const ROUTE_RULES = {
     risk: "moderate",
   },
   "/nova4d/render/team-render/publish": {
-    description: "Publish team render (ack in plugin skeleton).",
+    description: "Publish scene for Team Render.",
     risk: "moderate",
   },
 
