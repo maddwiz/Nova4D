@@ -1,6 +1,49 @@
 /* Cinematic smoke module extracted from app.js */
+function normalizeCommandStatusCompat(status) {
+  if (typeof normalizeCommandStatus === "function") {
+    return normalizeCommandStatus(status);
+  }
+  const normalized = String(status || "").trim().toLowerCase();
+  return normalized || "unknown";
+}
+
+function summarizeCommandStatusesCompat(commands) {
+  if (typeof summarizeCommandStatuses === "function") {
+    return summarizeCommandStatuses(commands);
+  }
+  const rows = Array.isArray(commands) ? commands : [];
+  const summary = {
+    total: rows.length,
+    queued: 0,
+    dispatched: 0,
+    succeeded: 0,
+    failed: 0,
+    canceled: 0,
+    unknown: 0,
+    terminal: 0,
+  };
+  rows.forEach((command) => {
+    const status = normalizeCommandStatusCompat(command?.status);
+    if (status === "queued") {
+      summary.queued += 1;
+    } else if (status === "dispatched") {
+      summary.dispatched += 1;
+    } else if (status === "succeeded") {
+      summary.succeeded += 1;
+    } else if (status === "failed") {
+      summary.failed += 1;
+    } else if (status === "canceled") {
+      summary.canceled += 1;
+    } else {
+      summary.unknown += 1;
+    }
+  });
+  summary.terminal = summary.succeeded + summary.failed + summary.canceled;
+  return summary;
+}
+
 function classForCommandStatus(status) {
-  const normalized = normalizeCommandStatus(status);
+  const normalized = normalizeCommandStatusCompat(status);
   if (normalized === "succeeded") {
     return "status-ok";
   }
@@ -53,7 +96,7 @@ function buildCinematicSmokeStages(queued, blocked) {
       id: String(command.id || "").trim(),
       route: String(command.route || "").trim(),
       label: String(command.reason || command.action || command.route || `Stage ${index + 1}`).trim(),
-      status: normalizeCommandStatus(command.status || "queued"),
+      status: normalizeCommandStatusCompat(command.status || "queued"),
       blocked_reason: "",
     });
   });
@@ -78,7 +121,7 @@ function renderCinematicSmokeProgress(stages, snapshotById = new Map()) {
   }
   nodes.cinematicSmokeProgress.innerHTML = rows.map((stage, index) => {
     const snapshot = snapshotById.get(stage.id);
-    const status = normalizeCommandStatus(snapshot?.status || stage.status || "queued");
+    const status = normalizeCommandStatusCompat(snapshot?.status || stage.status || "queued");
     const statusClass = classForCommandStatus(status);
     const label = escapeHtml(stage.label || stage.route || `Stage ${index + 1}`);
     const route = escapeHtml(stage.route || "");
@@ -107,7 +150,7 @@ function sanitizeCinematicSmokeCommand(command) {
     id,
     route: String(command.route || "").trim(),
     action: String(command.action || "").trim(),
-    status: normalizeCommandStatus(command.status),
+    status: normalizeCommandStatusCompat(command.status),
     error: String(command.error || "").trim(),
   };
 }
@@ -134,7 +177,7 @@ function normalizeCinematicSmokeHistoryEntry(entry) {
       route: String(item?.route || "").trim(),
       reason: String(item?.reason || "blocked").trim(),
     }));
-  const summary = summarizeCommandStatuses(commands);
+  const summary = summarizeCommandStatusesCompat(commands);
   return {
     id,
     workflow_id: String(entry.workflow_id || "cinematic_smoke").trim() || "cinematic_smoke",
@@ -322,7 +365,7 @@ function loadCinematicSmokeHistoryEntry(entry) {
   })));
   const snapshotById = new Map((selected.commands || []).map((command) => [command.id, command]));
   renderCinematicSmokeProgress(stageRows, snapshotById);
-  const summary = selected.summary || summarizeCommandStatuses(selected.commands || []);
+  const summary = selected.summary || summarizeCommandStatusesCompat(selected.commands || []);
   setCinematicSmokeStatus(
     `${selected.workflow_name}: history loaded | ok ${summary.succeeded || 0} failed ${summary.failed || 0} canceled ${summary.canceled || 0}`,
     summary.failed > 0 ? "status-error" : "hint"
@@ -360,7 +403,7 @@ function setCinematicSmokeSession(session) {
   const commands = (Array.isArray(session.commands) ? session.commands : [])
     .map((command) => sanitizeCinematicSmokeCommand(command))
     .filter(Boolean);
-  const summary = summarizeCommandStatuses(commands);
+  const summary = summarizeCommandStatusesCompat(commands);
   const blocked = (Array.isArray(session.blocked_commands) ? session.blocked_commands : []).map((item) => ({
     route: String(item?.route || "").trim(),
     reason: String(item?.reason || "blocked").trim(),
@@ -433,7 +476,7 @@ async function retryCinematicSmokeFailures() {
     return;
   }
   const snapshots = await fetchCommandSnapshots(session.command_ids);
-  const retryable = snapshots.filter((command) => normalizeCommandStatus(command?.status) === "failed");
+  const retryable = snapshots.filter((command) => normalizeCommandStatusCompat(command?.status) === "failed");
   if (!retryable.length) {
     setCinematicSmokeStatus("Cinematic smoke: no failed commands to retry.", "hint");
     const finalized = Object.assign({}, session, {
@@ -499,4 +542,15 @@ async function retryCinematicSmokeFailures() {
   setCinematicSmokeSession(finalized);
   appendCinematicSmokeHistory(finalized);
   setCinematicSmokeHistoryStatus("Saved cinematic smoke retry session to history.", retryErrors ? "status-warn" : "hint");
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    sanitizeCinematicSmokeCommand,
+    normalizeCinematicSmokeHistoryEntry,
+    _internals: {
+      normalizeCommandStatusCompat,
+      summarizeCommandStatusesCompat,
+    },
+  };
 }

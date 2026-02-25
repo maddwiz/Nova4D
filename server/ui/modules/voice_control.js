@@ -12,17 +12,29 @@ function trimVoicePrompt(input) {
     .trim();
 }
 
+function resolvedVoiceCommandPrefix() {
+  const value = typeof VOICE_COMMAND_PREFIX === "string" ? VOICE_COMMAND_PREFIX.trim() : "";
+  return value || "nova command";
+}
+
+function resolvedVoiceFallbackPrefix() {
+  const value = typeof VOICE_COMMAND_FALLBACK_PREFIX === "string" ? VOICE_COMMAND_FALLBACK_PREFIX.trim() : "";
+  return value || "nova";
+}
+
 function stripVoiceCommandPrefix(normalizedText) {
-  if (normalizedText.startsWith(`${VOICE_COMMAND_PREFIX} `)) {
-    return normalizedText.slice(VOICE_COMMAND_PREFIX.length).trim();
+  const primaryPrefix = resolvedVoiceCommandPrefix();
+  const fallbackPrefix = resolvedVoiceFallbackPrefix();
+  if (normalizedText.startsWith(`${primaryPrefix} `)) {
+    return normalizedText.slice(primaryPrefix.length).trim();
   }
-  if (normalizedText === VOICE_COMMAND_PREFIX) {
+  if (normalizedText === primaryPrefix) {
     return "";
   }
-  if (normalizedText.startsWith(`${VOICE_COMMAND_FALLBACK_PREFIX} `)) {
-    return normalizedText.slice(VOICE_COMMAND_FALLBACK_PREFIX.length).trim();
+  if (normalizedText.startsWith(`${fallbackPrefix} `)) {
+    return normalizedText.slice(fallbackPrefix.length).trim();
   }
-  if (normalizedText === VOICE_COMMAND_FALLBACK_PREFIX) {
+  if (normalizedText === fallbackPrefix) {
     return "";
   }
   return null;
@@ -217,10 +229,13 @@ function parseVoiceShortcut(rawTranscript) {
 function shouldSkipVoiceShortcut(shortcut) {
   const now = Date.now();
   const key = String(shortcut?.key || "");
+  const dedupMs = Number.isFinite(Number(VOICE_COMMAND_DEDUP_MS))
+    ? Number(VOICE_COMMAND_DEDUP_MS)
+    : 2500;
   if (!key) {
     return false;
   }
-  if (lastVoiceShortcut.key === key && now - lastVoiceShortcut.at < VOICE_COMMAND_DEDUP_MS) {
+  if (lastVoiceShortcut.key === key && now - lastVoiceShortcut.at < dedupMs) {
     return true;
   }
   lastVoiceShortcut = { key, at: now };
@@ -579,4 +594,13 @@ function initVoice() {
   nodes.voiceStop.addEventListener("click", () => {
     recognition.stop();
   });
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    normalizeVoiceText,
+    trimVoicePrompt,
+    stripVoiceCommandPrefix,
+    parseVoiceShortcut,
+  };
 }

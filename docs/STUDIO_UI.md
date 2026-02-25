@@ -44,7 +44,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Supports bulk retry of failed commands and status-filtered recent view
 - Persists non-secret Studio settings in browser local storage
 - Can optionally persist provider API keys in local browser profile storage
-- UI responsibilities are split into browser modules under `server/ui/modules/` (`bridge_status`, `provider_management`, `workflow_engine`, `cinematic_smoke`, `run_monitor`, `command_browser`, `voice_control`) with `app.js` as the orchestrator
+- UI responsibilities are split into browser modules under `server/ui/modules/` (`bridge_status`, `provider_management`, `workflow_engine`, `execution_engine`, `cinematic_smoke`, `run_monitor`, `command_browser`, `voice_control`) with `app.js` as the orchestrator
 
 ## Notes
 
