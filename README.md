@@ -74,6 +74,7 @@ From the UI you can:
 - Save/load/delete reusable prompt presets for repeatable requests
 - Use Smart Run to auto-validate provider config before execution
 - Auto monitor queued command completion with live success/fail progress
+- Triage last monitored run with one-click failure inspection and retry
 - Dictate prompts with browser voice input
 - Use voice shortcuts (`nova command smart run ...`, `nova command plan ...`, `nova command run ...`, `nova command run template`, `nova command guided check`)
 - Use keyboard shortcuts in the prompt box (`Cmd/Ctrl+Enter` Smart Run, `Cmd/Ctrl+Shift+Enter` Plan, `Alt+Enter` Run Template)

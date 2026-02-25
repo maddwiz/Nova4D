@@ -69,6 +69,9 @@ const nodes = {
   smartRunButton: document.getElementById("smartRunButton"),
   autoMonitorRuns: document.getElementById("autoMonitorRuns"),
   runMonitorStatus: document.getElementById("runMonitorStatus"),
+  stopRunMonitorButton: document.getElementById("stopRunMonitorButton"),
+  showMonitorFailuresButton: document.getElementById("showMonitorFailuresButton"),
+  retryMonitorFailuresButton: document.getElementById("retryMonitorFailuresButton"),
   queuePlanButton: document.getElementById("queuePlanButton"),
   providerTestButton: document.getElementById("providerTestButton"),
   providerStatus: document.getElementById("providerStatus"),
@@ -160,6 +163,10 @@ let providerTestState = {
 let lastVoiceShortcut = { key: "", at: 0 };
 let smartRunInProgress = false;
 let runMonitorToken = 0;
+let runMonitorActive = false;
+let lastRunMonitorSource = "";
+let lastRunMonitorCommandIds = [];
+let lastRunMonitorSnapshots = [];
 
 function escapeHtml(input) {
   return String(input)
@@ -1576,6 +1583,31 @@ function setRunMonitorStatus(text, className = "hint") {
   nodes.runMonitorStatus.className = className;
 }
 
+function updateRunMonitorButtons() {
+  nodes.stopRunMonitorButton.disabled = !runMonitorActive;
+  const hasSession = lastRunMonitorCommandIds.length > 0;
+  nodes.showMonitorFailuresButton.disabled = !hasSession;
+  nodes.retryMonitorFailuresButton.disabled = !hasSession;
+}
+
+function setRunMonitorSession(sourceLabel, commandIds, snapshots = []) {
+  lastRunMonitorSource = String(sourceLabel || "").trim() || "Run";
+  lastRunMonitorCommandIds = Array.from(new Set(
+    (commandIds || [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean)
+  ));
+  lastRunMonitorSnapshots = Array.isArray(snapshots) ? snapshots.slice() : [];
+  updateRunMonitorButtons();
+}
+
+function stopRunMonitor(reason = "Run monitor stopped.") {
+  runMonitorToken += 1;
+  runMonitorActive = false;
+  updateRunMonitorButtons();
+  setRunMonitorStatus(reason, "hint");
+}
+
 function normalizeCommandStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
   if (!normalized) {
@@ -1615,6 +1647,114 @@ function summarizeCommandStatuses(commands) {
   return summary;
 }
 
+async function fetchCommandSnapshots(commandIds) {
+  const ids = Array.from(new Set(
+    (commandIds || [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean)
+  ));
+  if (!ids.length) {
+    return [];
+  }
+  const snapshots = await Promise.all(ids.map(async (commandId) => {
+    try {
+      const response = await api(`/nova4d/commands/${encodeURIComponent(commandId)}`);
+      return response.command || { id: commandId, status: "unknown" };
+    } catch (_err) {
+      return { id: commandId, status: "unknown" };
+    }
+  }));
+  return snapshots;
+}
+
+function renderMonitorFailureList(commands, sourceLabel = "Run") {
+  const rows = Array.isArray(commands) ? commands : [];
+  if (!rows.length) {
+    nodes.queuedCommands.innerHTML = "<li class='hint'>No failed commands to show.</li>";
+    return;
+  }
+  nodes.queuedCommands.innerHTML = rows.map((command) => {
+    const route = escapeHtml(command.route || "-");
+    const action = escapeHtml(command.action || "-");
+    const status = escapeHtml(command.status || "unknown");
+    const id = escapeHtml(command.id || "");
+    const err = escapeHtml(command.error || "");
+    const detail = err ? `${action} | ${status} | ${id} | ${err}` : `${action} | ${status} | ${id}`;
+    return `<li><div><span class="code-inline">${route}</span></div><div class="mono small">${detail}</div></li>`;
+  }).join("");
+  nodes.runSummary.textContent =
+    `${sourceLabel}: ${rows.length} failed/canceled command${rows.length === 1 ? "" : "s"} in last monitored run.`;
+}
+
+async function showLastRunFailures() {
+  if (!lastRunMonitorCommandIds.length) {
+    nodes.runSummary.textContent = "No monitored run available yet.";
+    return;
+  }
+  const snapshots = await fetchCommandSnapshots(lastRunMonitorCommandIds);
+  lastRunMonitorSnapshots = snapshots;
+  const failures = snapshots.filter((command) => {
+    const status = normalizeCommandStatus(command?.status);
+    return status === "failed" || status === "canceled";
+  });
+  if (!failures.length) {
+    nodes.runSummary.textContent = `${lastRunMonitorSource}: no failed/canceled commands in last monitored run.`;
+    nodes.queuedCommands.innerHTML = "<li class='hint'>No failed commands detected.</li>";
+    return;
+  }
+  renderMonitorFailureList(failures, lastRunMonitorSource);
+}
+
+async function retryLastRunFailures() {
+  if (!lastRunMonitorCommandIds.length) {
+    nodes.runSummary.textContent = "No monitored run available yet.";
+    return;
+  }
+  const snapshots = await fetchCommandSnapshots(lastRunMonitorCommandIds);
+  lastRunMonitorSnapshots = snapshots;
+  const retryable = snapshots.filter((command) => normalizeCommandStatus(command?.status) === "failed");
+  if (!retryable.length) {
+    nodes.runSummary.textContent = `${lastRunMonitorSource}: no failed commands to retry.`;
+    return;
+  }
+
+  let requeued = 0;
+  let retryErrors = 0;
+  const queuedRows = [];
+  for (const command of retryable) {
+    const commandId = String(command?.id || "").trim();
+    if (!commandId) {
+      continue;
+    }
+    try {
+      const response = await api(`/nova4d/commands/${encodeURIComponent(commandId)}/requeue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const requeuedCommand = response.command || {};
+      requeued += 1;
+      queuedRows.push({
+        id: commandId,
+        route: requeuedCommand.route || command.route || "",
+        action: requeuedCommand.action || command.action || "",
+        status: requeuedCommand.status || "queued",
+      });
+    } catch (_err) {
+      retryErrors += 1;
+    }
+  }
+
+  nodes.runSummary.textContent =
+    `${lastRunMonitorSource}: retried ${requeued}/${retryable.length} failed command${retryable.length === 1 ? "" : "s"}${retryErrors ? ` | retry errors ${retryErrors}` : ""}.`;
+  await loadRecent();
+  await loadHealth();
+  await loadSystemStatus();
+  if (requeued > 0) {
+    void maybeAutoMonitorQueued(queuedRows, `${lastRunMonitorSource} retry`);
+  }
+}
+
 async function monitorQueuedCommands(queuedCommands, sourceLabel = "Run") {
   const queueRows = Array.isArray(queuedCommands) ? queuedCommands : [];
   const commandIds = Array.from(new Set(
@@ -1623,12 +1763,16 @@ async function monitorQueuedCommands(queuedCommands, sourceLabel = "Run") {
       .filter(Boolean)
   ));
   if (!commandIds.length) {
+    runMonitorActive = false;
+    updateRunMonitorButtons();
     setRunMonitorStatus(`${sourceLabel}: queued commands have no IDs to monitor.`, "status-warn");
     return { monitored: false, reason: "missing-command-ids" };
   }
 
   const token = runMonitorToken + 1;
   runMonitorToken = token;
+  runMonitorActive = true;
+  setRunMonitorSession(sourceLabel, commandIds, queueRows);
   const startedAt = Date.now();
   setRunMonitorStatus(
     `${sourceLabel}: monitoring ${commandIds.length} command${commandIds.length === 1 ? "" : "s"}...`,
@@ -1640,19 +1784,13 @@ async function monitorQueuedCommands(queuedCommands, sourceLabel = "Run") {
       return { monitored: false, canceled: true };
     }
 
-    const snapshots = await Promise.all(commandIds.map(async (commandId) => {
-      try {
-        const response = await api(`/nova4d/commands/${encodeURIComponent(commandId)}`);
-        return response.command || { id: commandId, status: "unknown" };
-      } catch (_err) {
-        return { id: commandId, status: "unknown" };
-      }
-    }));
+    const snapshots = await fetchCommandSnapshots(commandIds);
 
     if (token !== runMonitorToken) {
       return { monitored: false, canceled: true };
     }
 
+    lastRunMonitorSnapshots = snapshots;
     const summary = summarizeCommandStatuses(snapshots);
     const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
     const completed = summary.terminal === summary.total;
@@ -1664,6 +1802,8 @@ async function monitorQueuedCommands(queuedCommands, sourceLabel = "Run") {
     setRunMonitorStatus(text, className);
 
     if (completed) {
+      runMonitorActive = false;
+      updateRunMonitorButtons();
       await loadRecent();
       await loadHealth();
       await loadSystemStatus();
@@ -1674,6 +1814,8 @@ async function monitorQueuedCommands(queuedCommands, sourceLabel = "Run") {
   }
 
   if (token === runMonitorToken) {
+    runMonitorActive = false;
+    updateRunMonitorButtons();
     setRunMonitorStatus(
       `${sourceLabel}: monitor timeout after ${Math.floor(RUN_MONITOR_TIMEOUT_MS / 1000)}s. Check recent commands for pending jobs.`,
       "status-warn"
@@ -1685,10 +1827,14 @@ async function monitorQueuedCommands(queuedCommands, sourceLabel = "Run") {
 async function maybeAutoMonitorQueued(queuedCommands, sourceLabel = "Run") {
   const queueRows = Array.isArray(queuedCommands) ? queuedCommands : [];
   if (!queueRows.length) {
+    runMonitorActive = false;
+    updateRunMonitorButtons();
     setRunMonitorStatus(`${sourceLabel}: no queued commands to monitor.`, "hint");
     return { monitored: false, reason: "none-queued" };
   }
   if (!nodes.autoMonitorRuns.checked) {
+    runMonitorActive = false;
+    setRunMonitorSession(sourceLabel, queueRows.map((row) => row?.id), queueRows);
     setRunMonitorStatus(
       `${sourceLabel}: queued ${queueRows.length} command${queueRows.length === 1 ? "" : "s"} (auto monitor disabled).`,
       "hint"
@@ -2370,8 +2516,20 @@ nodes.autoMonitorRuns.addEventListener("change", () => {
     setRunMonitorStatus("Run monitor enabled.", "hint");
     return;
   }
-  runMonitorToken += 1;
-  setRunMonitorStatus("Run monitor disabled.", "hint");
+  stopRunMonitor("Run monitor disabled.");
+});
+nodes.stopRunMonitorButton.addEventListener("click", () => {
+  if (!runMonitorActive) {
+    setRunMonitorStatus("Run monitor is not active.", "hint");
+    return;
+  }
+  stopRunMonitor("Run monitor stopped by user.");
+});
+nodes.showMonitorFailuresButton.addEventListener("click", async () => {
+  await showLastRunFailures();
+});
+nodes.retryMonitorFailuresButton.addEventListener("click", async () => {
+  await retryLastRunFailures();
 });
 nodes.applyRecentFiltersButton.addEventListener("click", async () => {
   await applyRecentFilters();
@@ -2531,6 +2689,8 @@ nodes.providerProfileRememberKey.addEventListener("change", () => {
 
 window.addEventListener("beforeunload", () => {
   runMonitorToken += 1;
+  runMonitorActive = false;
+  updateRunMonitorButtons();
   disconnectLiveStream("Live stream offline.");
 });
 
@@ -2564,6 +2724,9 @@ window.addEventListener("beforeunload", () => {
   nodes.providerProfileName.value = "";
   nodes.providerProfileRememberKey.checked = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
+  setRunMonitorSession("Run", [], []);
+  runMonitorActive = false;
+  updateRunMonitorButtons();
   setRunMonitorStatus("Run monitor idle.", "hint");
   nodes.guidedCheckSummary.className = "hint";
   nodes.guidedCheckSummary.textContent = "Checklist not run in this session.";
