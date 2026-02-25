@@ -72,6 +72,8 @@ const nodes = {
   stopRunMonitorButton: document.getElementById("stopRunMonitorButton"),
   showMonitorFailuresButton: document.getElementById("showMonitorFailuresButton"),
   retryMonitorFailuresButton: document.getElementById("retryMonitorFailuresButton"),
+  exportRunMonitorButton: document.getElementById("exportRunMonitorButton"),
+  clearRunMonitorSessionButton: document.getElementById("clearRunMonitorSessionButton"),
   queuePlanButton: document.getElementById("queuePlanButton"),
   providerTestButton: document.getElementById("providerTestButton"),
   providerStatus: document.getElementById("providerStatus"),
@@ -1588,6 +1590,8 @@ function updateRunMonitorButtons() {
   const hasSession = lastRunMonitorCommandIds.length > 0;
   nodes.showMonitorFailuresButton.disabled = !hasSession;
   nodes.retryMonitorFailuresButton.disabled = !hasSession;
+  nodes.exportRunMonitorButton.disabled = !hasSession;
+  nodes.clearRunMonitorSessionButton.disabled = !hasSession;
 }
 
 function setRunMonitorSession(sourceLabel, commandIds, snapshots = []) {
@@ -1606,6 +1610,22 @@ function stopRunMonitor(reason = "Run monitor stopped.") {
   runMonitorActive = false;
   updateRunMonitorButtons();
   setRunMonitorStatus(reason, "hint");
+}
+
+function clearRunMonitorSession(setStatusMessage = true) {
+  runMonitorToken += 1;
+  lastRunMonitorSource = "";
+  lastRunMonitorCommandIds = [];
+  lastRunMonitorSnapshots = [];
+  runMonitorActive = false;
+  updateRunMonitorButtons();
+  if (setStatusMessage) {
+    if (nodes.autoMonitorRuns.checked) {
+      setRunMonitorStatus("Run monitor session cleared.", "hint");
+    } else {
+      setRunMonitorStatus("Run monitor session cleared (monitor disabled).", "hint");
+    }
+  }
 }
 
 function normalizeCommandStatus(status) {
@@ -1665,6 +1685,24 @@ async function fetchCommandSnapshots(commandIds) {
     }
   }));
   return snapshots;
+}
+
+async function ensureLatestRunMonitorSnapshots() {
+  if (!lastRunMonitorCommandIds.length) {
+    lastRunMonitorSnapshots = [];
+    return [];
+  }
+
+  const knownIds = new Set(
+    (lastRunMonitorSnapshots || [])
+      .map((command) => String(command?.id || "").trim())
+      .filter(Boolean)
+  );
+  const hasAll = lastRunMonitorCommandIds.every((commandId) => knownIds.has(commandId));
+  if (!hasAll || lastRunMonitorSnapshots.length !== lastRunMonitorCommandIds.length) {
+    lastRunMonitorSnapshots = await fetchCommandSnapshots(lastRunMonitorCommandIds);
+  }
+  return lastRunMonitorSnapshots;
 }
 
 function renderMonitorFailureList(commands, sourceLabel = "Run") {
@@ -1752,6 +1790,42 @@ async function retryLastRunFailures() {
   await loadSystemStatus();
   if (requeued > 0) {
     void maybeAutoMonitorQueued(queuedRows, `${lastRunMonitorSource} retry`);
+  }
+}
+
+async function exportLastRunMonitorReport() {
+  if (!lastRunMonitorCommandIds.length) {
+    nodes.runSummary.textContent = "No monitored run available yet.";
+    return;
+  }
+  try {
+    const snapshots = await ensureLatestRunMonitorSnapshots();
+    const summary = summarizeCommandStatuses(snapshots);
+    const payload = {
+      exported_at: new Date().toISOString(),
+      source: lastRunMonitorSource || "Run",
+      command_ids: lastRunMonitorCommandIds,
+      summary,
+      commands: snapshots,
+      monitor_status_text: nodes.runMonitorStatus.textContent || "",
+      monitor_status_class: nodes.runMonitorStatus.className || "",
+    };
+    const serialized = JSON.stringify(payload, null, 2);
+    const blob = new Blob([serialized], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const stamp = payload.exported_at.replace(/[:.]/g, "-");
+    anchor.href = url;
+    anchor.download = `nova4d-run-monitor-${stamp}.json`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+    nodes.runSummary.textContent =
+      `${payload.source}: exported run monitor report (${summary.total} command${summary.total === 1 ? "" : "s"}).`;
+  } catch (err) {
+    nodes.runSummary.textContent = `Run monitor export failed: ${err.message}`;
   }
 }
 
@@ -2240,6 +2314,21 @@ function parseVoiceShortcut(rawTranscript) {
   if (/^(test\s+provider|provider\s+test)$/.test(command)) {
     return { action: "provider-test", label: "Test provider connection", key: "provider-test", prompt: "" };
   }
+  if (/^show(?:\s+last)?\s+failures$/.test(command)) {
+    return { action: "show-failures", label: "Show last monitor failures", key: "show-failures", prompt: "" };
+  }
+  if (/^retry(?:\s+last)?\s+failures$/.test(command)) {
+    return { action: "retry-failures", label: "Retry last monitor failures", key: "retry-failures", prompt: "" };
+  }
+  if (/^stop\s+monitor$/.test(command)) {
+    return { action: "stop-monitor", label: "Stop run monitor", key: "stop-monitor", prompt: "" };
+  }
+  if (/^export(?:\s+last)?\s+monitor(?:\s+report)?$/.test(command)) {
+    return { action: "export-monitor", label: "Export run monitor report", key: "export-monitor", prompt: "" };
+  }
+  if (/^clear(?:\s+monitor(?:\s+session)?)$/.test(command)) {
+    return { action: "clear-monitor-session", label: "Clear run monitor session", key: "clear-monitor-session", prompt: "" };
+  }
   if (/^(stop|stop\s+listening|end\s+voice)$/.test(command)) {
     return { action: "stop-listening", label: "Stop voice input", key: "stop-listening", prompt: "" };
   }
@@ -2291,7 +2380,7 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
 
     if (shortcut.action === "help") {
       nodes.voiceStatus.textContent =
-        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command run template\", \"nova command preview template\", \"nova command guided check\".";
+        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command show failures\", \"nova command retry failures\", \"nova command stop monitor\".";
       return true;
     }
 
@@ -2357,6 +2446,35 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
     if (shortcut.action === "provider-test") {
       await testProviderConnection();
       nodes.voiceStatus.textContent = "Voice command complete: provider test finished.";
+      return true;
+    }
+    if (shortcut.action === "show-failures") {
+      await showLastRunFailures();
+      nodes.voiceStatus.textContent = "Voice command complete: failure list updated.";
+      return true;
+    }
+    if (shortcut.action === "retry-failures") {
+      await retryLastRunFailures();
+      nodes.voiceStatus.textContent = "Voice command complete: failure retry attempted.";
+      return true;
+    }
+    if (shortcut.action === "stop-monitor") {
+      if (runMonitorActive) {
+        stopRunMonitor("Run monitor stopped by voice command.");
+      } else {
+        setRunMonitorStatus("Run monitor is not active.", "hint");
+      }
+      nodes.voiceStatus.textContent = "Voice command complete: monitor stop processed.";
+      return true;
+    }
+    if (shortcut.action === "export-monitor") {
+      await exportLastRunMonitorReport();
+      nodes.voiceStatus.textContent = "Voice command complete: monitor export processed.";
+      return true;
+    }
+    if (shortcut.action === "clear-monitor-session") {
+      clearRunMonitorSession(true);
+      nodes.voiceStatus.textContent = "Voice command complete: monitor session cleared.";
       return true;
     }
     if (shortcut.action === "stop-listening") {
@@ -2531,6 +2649,12 @@ nodes.showMonitorFailuresButton.addEventListener("click", async () => {
 nodes.retryMonitorFailuresButton.addEventListener("click", async () => {
   await retryLastRunFailures();
 });
+nodes.exportRunMonitorButton.addEventListener("click", async () => {
+  await exportLastRunMonitorReport();
+});
+nodes.clearRunMonitorSessionButton.addEventListener("click", () => {
+  clearRunMonitorSession(true);
+});
 nodes.applyRecentFiltersButton.addEventListener("click", async () => {
   await applyRecentFilters();
 });
@@ -2688,9 +2812,7 @@ nodes.providerProfileRememberKey.addEventListener("change", () => {
 });
 
 window.addEventListener("beforeunload", () => {
-  runMonitorToken += 1;
-  runMonitorActive = false;
-  updateRunMonitorButtons();
+  clearRunMonitorSession(false);
   disconnectLiveStream("Live stream offline.");
 });
 
@@ -2724,9 +2846,7 @@ window.addEventListener("beforeunload", () => {
   nodes.providerProfileName.value = "";
   nodes.providerProfileRememberKey.checked = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
-  setRunMonitorSession("Run", [], []);
-  runMonitorActive = false;
-  updateRunMonitorButtons();
+  clearRunMonitorSession(false);
   setRunMonitorStatus("Run monitor idle.", "hint");
   nodes.guidedCheckSummary.className = "hint";
   nodes.guidedCheckSummary.textContent = "Checklist not run in this session.";
