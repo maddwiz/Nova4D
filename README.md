@@ -67,7 +67,8 @@ From the UI you can:
 
 - Connect AI provider settings (Builtin/OpenAI/OpenRouter/Anthropic/OpenAI-compatible)
 - Test provider connectivity before planning/running
-- Use one-click quick workflow templates for common tasks (cube, cloner, material, animate/render)
+- Use one-click quick workflow templates for common tasks (AI-planned or deterministic via `/nova4d/workflows/run`)
+- Toggle template mode between AI planning and deterministic execution
 - Dictate prompts with browser voice input
 - Run one-click preflight diagnostics (paths, plugin presence, worker probe)
 - View consolidated system status (queue, readiness, stream clients, snapshot health)

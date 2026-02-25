@@ -344,6 +344,117 @@ function applyCommandGuards(commands, safetyInput) {
   };
 }
 
+const WORKFLOW_SPECS = [
+  { id: "spawn_cube", name: "Spawn Cube", description: "Create a single cube object." },
+  { id: "mograph_cloner", name: "MoGraph Cloner Setup", description: "Create a cloner object." },
+  { id: "redshift_material", name: "Redshift Material", description: "Create and assign a Redshift material." },
+  { id: "animate_render", name: "Animate + Render", description: "Set keys and render frame 0." },
+  { id: "full_smoke", name: "Full Workflow Smoke", description: "Cube + cloner + Redshift + animation + render." },
+];
+
+const workflowById = new Map(WORKFLOW_SPECS.map((workflow) => [workflow.id, workflow]));
+
+function workflowDefaults(options = {}) {
+  const objectName = String(options.object_name || "WorkflowCube").trim() || "WorkflowCube";
+  const clonerName = String(options.cloner_name || "WorkflowCloner").trim() || "WorkflowCloner";
+  const materialName = String(options.material_name || "WorkflowRedshiftMat").trim() || "WorkflowRedshiftMat";
+  const frameStart = parseInteger(options.frame_start, 0, -100000, 1000000);
+  const frameEnd = parseInteger(options.frame_end, 30, -100000, 1000000);
+  const startValue = parseFloatSafe(options.start_value, 0);
+  const endValue = parseFloatSafe(options.end_value, 180);
+  const renderFrame = parseInteger(options.render_frame, frameStart, -100000, 1000000);
+  const renderOutput = String(options.render_output || "/tmp/nova4d-workflow-frame.png").trim()
+    || "/tmp/nova4d-workflow-frame.png";
+
+  return {
+    object_name: objectName,
+    cloner_name: clonerName,
+    material_name: materialName,
+    frame_start: frameStart,
+    frame_end: frameEnd,
+    start_value: startValue,
+    end_value: endValue,
+    render_frame: renderFrame,
+    render_output: renderOutput,
+  };
+}
+
+function buildWorkflowCommands(workflowId, options = {}) {
+  const defaults = workflowDefaults(options);
+  const spawnCube = {
+    route: "/nova4d/scene/spawn-object",
+    payload: {
+      object_type: "cube",
+      name: defaults.object_name,
+      position: [0, 120, 0],
+    },
+    reason: "Create workflow base cube.",
+  };
+  const createCloner = {
+    route: "/nova4d/mograph/cloner/create",
+    payload: { name: defaults.cloner_name },
+    reason: "Create workflow cloner.",
+  };
+  const createRedshift = {
+    route: "/nova4d/material/create-redshift",
+    payload: { name: defaults.material_name },
+    reason: "Create workflow Redshift material.",
+  };
+  const assignMaterial = {
+    route: "/nova4d/material/assign",
+    payload: {
+      target_name: defaults.object_name,
+      material_name: defaults.material_name,
+    },
+    reason: "Assign workflow material to cube.",
+  };
+  const keyStart = {
+    route: "/nova4d/animation/set-key",
+    payload: {
+      target_name: defaults.object_name,
+      parameter: "position.x",
+      frame: defaults.frame_start,
+      value: defaults.start_value,
+    },
+    reason: "Animation start key.",
+  };
+  const keyEnd = {
+    route: "/nova4d/animation/set-key",
+    payload: {
+      target_name: defaults.object_name,
+      parameter: "position.x",
+      frame: defaults.frame_end,
+      value: defaults.end_value,
+    },
+    reason: "Animation end key.",
+  };
+  const renderFrame = {
+    route: "/nova4d/render/frame",
+    payload: {
+      frame: defaults.render_frame,
+      output_path: defaults.render_output,
+    },
+    reason: "Render workflow preview frame.",
+  };
+
+  if (workflowId === "spawn_cube") {
+    return [spawnCube];
+  }
+  if (workflowId === "mograph_cloner") {
+    return [createCloner];
+  }
+  if (workflowId === "redshift_material") {
+    return [spawnCube, createRedshift, assignMaterial];
+  }
+  if (workflowId === "animate_render") {
+    return [spawnCube, keyStart, keyEnd, renderFrame];
+  }
+  if (workflowId === "full_smoke") {
+    return [spawnCube, createCloner, createRedshift, assignMaterial, keyStart, keyEnd, renderFrame];
+  }
+  return [];
+}
+
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -953,6 +1064,10 @@ app.get("/nova4d/capabilities", requireApiKey, (_req, res) => {
         "/nova4d/scene/materials",
         "/nova4d/scene/object",
       ],
+      workflow_endpoints: [
+        "/nova4d/workflows",
+        "/nova4d/workflows/run",
+      ],
     }),
     routes: routeCatalog,
   });
@@ -963,6 +1078,66 @@ app.get("/nova4d/routes", requireApiKey, (_req, res) => {
     status: "ok",
     count: routeCatalog.length,
     routes: routeCatalog,
+  });
+});
+
+app.get("/nova4d/workflows", requireApiKey, (_req, res) => {
+  res.json({
+    status: "ok",
+    workflows: WORKFLOW_SPECS,
+    defaults: workflowDefaults(),
+  });
+});
+
+app.post("/nova4d/workflows/run", requireApiKey, (req, res) => {
+  const workflowId = String(req.body.workflow_id || "").trim();
+  if (!workflowId) {
+    return res.status(400).json({ status: "error", error: "workflow_id is required" });
+  }
+
+  const workflow = workflowById.get(workflowId);
+  if (!workflow) {
+    return res.status(404).json({ status: "error", error: "workflow not found", workflow_id: workflowId });
+  }
+
+  const options = req.body.options && typeof req.body.options === "object" && !Array.isArray(req.body.options)
+    ? req.body.options
+    : {};
+  const maxCommands = parseInteger(req.body.max_commands, 20, 1, 100);
+  const safety = normalizeSafetyPolicy(req.body.safety || {});
+  const clientHint = String(req.body.client_hint || "cinema4d-live").trim();
+  const requestedBy = String(req.body.requested_by || `workflow:${workflow.id}`).trim();
+
+  const commands = buildWorkflowCommands(workflow.id, options).slice(0, maxCommands);
+  if (commands.length === 0) {
+    return res.status(400).json({
+      status: "error",
+      error: "workflow produced no commands",
+      workflow_id: workflow.id,
+    });
+  }
+
+  const guarded = applyCommandGuards(commands, safety);
+  const queued = queuePlannedCommands({
+    commands: guarded.allowed,
+    routeMap: commandRouteByPath,
+    store,
+    requestedBy,
+    clientHint,
+  });
+
+  return res.json({
+    status: "ok",
+    workflow: {
+      id: workflow.id,
+      name: workflow.name,
+      description: workflow.description,
+      options: workflowDefaults(options),
+    },
+    safety_policy: guarded.policy,
+    blocked_commands: guarded.blocked,
+    queued_count: queued.length,
+    queued,
   });
 });
 

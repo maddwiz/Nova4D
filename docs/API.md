@@ -43,6 +43,28 @@ curl -s "${BASE_URL}/nova4d/system/status" "${AUTH_HEADER[@]}" | jq .
 curl -s "${BASE_URL}/nova4d/stats" "${AUTH_HEADER[@]}" | jq .
 ```
 
+### List Deterministic Workflows
+
+```bash
+curl -s "${BASE_URL}/nova4d/workflows" "${AUTH_HEADER[@]}" | jq .
+```
+
+### Run Deterministic Workflow
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/workflows/run" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "workflow_id": "full_smoke",
+  "safety": {
+    "mode": "balanced",
+    "allow_dangerous": false
+  },
+  "max_commands": 20
+}' | jq .
+```
+
 ### Recent Commands
 
 ```bash

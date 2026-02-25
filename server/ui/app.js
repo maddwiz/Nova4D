@@ -14,6 +14,7 @@ const nodes = {
   useSceneContext: document.getElementById("useSceneContext"),
   refreshSceneContext: document.getElementById("refreshSceneContext"),
   templateSelect: document.getElementById("templateSelect"),
+  deterministicWorkflow: document.getElementById("deterministicWorkflow"),
   loadTemplateButton: document.getElementById("loadTemplateButton"),
   runTemplateButton: document.getElementById("runTemplateButton"),
   promptInput: document.getElementById("promptInput"),
@@ -75,12 +76,12 @@ const WORKFLOW_TEMPLATES = [
   {
     id: "redshift_material",
     label: "Redshift Material",
-    prompt: "Create a Redshift material named TemplateRedshiftMat and assign it to the main cube object.",
+    prompt: "Create a cube named WorkflowCube, create a Redshift material named WorkflowRedshiftMat, and assign it to WorkflowCube.",
   },
   {
     id: "animate_render",
     label: "Animate + Render",
-    prompt: "Animate the main cube position.x from frame 0 value 0 to frame 30 value 180, then render frame 0 to /tmp/nova4d-template-frame.png.",
+    prompt: "Create a cube named WorkflowCube, animate WorkflowCube position.x from frame 0 value 0 to frame 30 value 180, then render frame 0 to /tmp/nova4d-template-frame.png.",
   },
   {
     id: "full_smoke",
@@ -143,6 +144,7 @@ function saveStudioSettings() {
     refresh_scene_context: Boolean(nodes.refreshSceneContext.checked),
     live_stream_enabled: Boolean(nodes.liveStreamEnabled.checked),
     selected_template: nodes.templateSelect.value || "none",
+    deterministic_workflow: Boolean(nodes.deterministicWorkflow.checked),
     recent_status_filter: nodes.recentStatusFilter.value || "",
   };
   try {
@@ -186,6 +188,9 @@ function applyStoredSettings(settings) {
   }
   if (typeof settings.selected_template === "string" && settings.selected_template) {
     nodes.templateSelect.value = settings.selected_template;
+  }
+  if (typeof settings.deterministic_workflow === "boolean") {
+    nodes.deterministicWorkflow.checked = settings.deterministic_workflow;
   }
   if (typeof settings.recent_status_filter === "string") {
     nodes.recentStatusFilter.value = settings.recent_status_filter;
@@ -886,6 +891,59 @@ async function runTemplateWorkflow() {
     nodes.runSummary.textContent = "Select a quick workflow template first.";
     return;
   }
+  if (nodes.deterministicWorkflow.checked) {
+    nodes.runSummary.textContent = "Running deterministic workflow...";
+    try {
+      const response = await api("/nova4d/workflows/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workflow_id: selected.id,
+          safety: safetyPayload(),
+          max_commands: Number(nodes.maxCommands.value || 10),
+          client_hint: "cinema4d-live",
+          requested_by: "workflow:studio-template",
+        }),
+      });
+      const workflow = response.workflow || {};
+      const blocked = Array.isArray(response.blocked_commands) ? response.blocked_commands : [];
+      const queued = Array.isArray(response.queued) ? response.queued : [];
+
+      nodes.planSummary.textContent =
+        `${workflow.name || selected.label} | deterministic workflow | queued ${queued.length}${blocked.length ? ` | blocked ${blocked.length}` : ""}`;
+      nodes.planCommands.innerHTML = queued.map((item) => {
+        const route = escapeHtml(item.route || "");
+        const action = escapeHtml(item.action || "");
+        return `<li><div><span class="code-inline">${route}</span></div><div class="mono small">${action}</div></li>`;
+      }).join("");
+      if (!queued.length && !blocked.length) {
+        nodes.planCommands.innerHTML = "<li class='hint'>No commands queued.</li>";
+      }
+      if (blocked.length) {
+        const blockedRows = blocked.map((item) => {
+          const route = escapeHtml(item.route || "");
+          const reason = escapeHtml(item.reason || "blocked");
+          return `<li><div><span class="code-inline">${route}</span></div><div class="status-warn">${reason}</div></li>`;
+        }).join("");
+        nodes.planCommands.innerHTML += blockedRows;
+      }
+
+      renderRun({
+        plan: { summary: `${workflow.name || selected.label} complete.` },
+        queued,
+        blocked_commands: blocked,
+        scene_context: { enabled: false },
+      });
+      await loadRecent();
+      await loadHealth();
+      await loadSystemStatus();
+      return;
+    } catch (err) {
+      nodes.runSummary.textContent = `Deterministic workflow failed: ${err.message}`;
+      return;
+    }
+  }
+
   if (selected.prompt) {
     nodes.promptInput.value = selected.prompt;
   }
@@ -994,6 +1052,7 @@ nodes.useSceneContext.addEventListener("change", () => {
 });
 
 nodes.templateSelect.addEventListener("change", saveStudioSettings);
+nodes.deterministicWorkflow.addEventListener("change", saveStudioSettings);
 nodes.recentStatusFilter.addEventListener("change", async () => {
   saveStudioSettings();
   await loadRecent();
@@ -1059,6 +1118,7 @@ nodes.recentTableBody.addEventListener("click", handleRecentTableAction);
   nodes.refreshSceneContext,
   nodes.liveStreamEnabled,
   nodes.templateSelect,
+  nodes.deterministicWorkflow,
   nodes.recentStatusFilter,
 ].forEach((node) => {
   node.addEventListener("change", saveStudioSettings);
@@ -1081,6 +1141,7 @@ window.addEventListener("beforeunload", () => {
   nodes.liveStreamEnabled.checked = true;
   populateTemplateSelect();
   nodes.templateSelect.value = "none";
+  nodes.deterministicWorkflow.checked = true;
   nodes.recentStatusFilter.value = "";
   nodes.refreshSceneContext.disabled = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
