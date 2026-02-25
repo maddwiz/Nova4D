@@ -79,6 +79,7 @@ From the UI you can:
 - Persist non-secret Studio settings in browser local storage
 - Watch live queue lifecycle updates in Studio via `/nova4d/stream`
 - Inspect recent command execution in one place
+- Manage recent commands directly in Studio (view details, requeue, cancel queued jobs)
 
 Detailed guide: `docs/STUDIO_UI.md`
 

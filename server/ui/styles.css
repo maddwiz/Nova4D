@@ -243,6 +243,19 @@ td {
   vertical-align: top;
 }
 
+.table-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+button.tiny {
+  width: auto;
+  padding: 5px 8px;
+  font-size: 0.73rem;
+  border-radius: 8px;
+}
+
 .status-ok {
   color: var(--ok);
 }
