@@ -33,9 +33,13 @@ test("loads Studio controls including cinematic smoke", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Retry Smoke Failures" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Export Smoke Report" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Clear Smoke Session" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Load Smoke History" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Export Smoke History" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Clear Smoke History" })).toBeDisabled();
   await expect(page.locator("#workflowGltfOutput")).toBeVisible();
   await expect(page.locator("#cinematicSmokeStatus")).toContainText("idle");
   await expect(page.locator("#runMonitorHistoryStatus")).toContainText("No run monitor history yet.");
+  await expect(page.locator("#cinematicSmokeHistoryStatus")).toContainText("No cinematic smoke history yet.");
 });
 
 test("enables monitor history controls and loads selected session", async ({ page }) => {
@@ -190,15 +194,27 @@ test("runs cinematic smoke and shows stage progress/artifact links", async ({ pa
   await expect(page.locator("#cinematicSmokeProgress")).toContainText("succeeded");
   await expect(page.getByRole("button", { name: "Retry Smoke Failures" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Export Smoke Report" })).toBeEnabled();
+  await expect(page.locator("#cinematicSmokeHistorySelect").locator("option")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "Load Smoke History" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Export Smoke History" })).toBeEnabled();
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export Smoke Report" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toContain("nova4d-cinematic-smoke-");
 
+  const historyDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export Smoke History" }).click();
+  const historyDownload = await historyDownloadPromise;
+  expect(historyDownload.suggestedFilename()).toContain("nova4d-cinematic-smoke-history-");
+
   await page.getByRole("button", { name: "Clear Smoke Session" }).click();
   await expect(page.locator("#cinematicSmokeStatus")).toContainText("session cleared");
   await expect(page.getByRole("button", { name: "Export Smoke Report" })).toBeDisabled();
+
+  await page.getByRole("button", { name: "Clear Smoke History" }).click();
+  await expect(page.locator("#cinematicSmokeHistoryStatus")).toContainText("history cleared");
+  await expect(page.getByRole("button", { name: "Load Smoke History" })).toBeDisabled();
 });
 
 test("retries failed cinematic smoke commands", async ({ page }) => {

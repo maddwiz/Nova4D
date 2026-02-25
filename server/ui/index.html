@@ -204,6 +204,18 @@
         <button id="exportCinematicSmokeReportButton" class="secondary" disabled>Export Smoke Report</button>
         <button id="clearCinematicSmokeSessionButton" class="secondary" disabled>Clear Smoke Session</button>
       </div>
+      <h3>Cinematic Smoke History</h3>
+      <div class="inline-actions wrap">
+        <select id="cinematicSmokeHistorySelect">
+          <option value="">No cinematic smoke history</option>
+        </select>
+      </div>
+      <div class="inline-actions">
+        <button id="loadCinematicSmokeHistoryButton" class="secondary" disabled>Load Smoke History</button>
+        <button id="exportCinematicSmokeHistoryButton" class="secondary" disabled>Export Smoke History</button>
+        <button id="clearCinematicSmokeHistoryButton" class="secondary" disabled>Clear Smoke History</button>
+      </div>
+      <div id="cinematicSmokeHistoryStatus" class="hint">No cinematic smoke history yet.</div>
       <div id="cinematicSmokeArtifacts" class="hint">Artifacts appear here after run starts.</div>
       <textarea id="promptInput" rows="5" placeholder="Example: Build a sci-fi cube field using a cloner, create a redshift material, animate x from frame 0 to 60, and render frame 30."></textarea>
       <h3>Saved Prompt Presets</h3>
@@ -254,7 +266,7 @@
       <div id="runMonitorHistoryStatus" class="hint">No run monitor history yet.</div>
       <div id="voiceStatus" class="hint">Voice input idle.</div>
       <div class="hint">
-        Voice shortcuts: say "nova command smart run ...", "nova command plan ...", "nova command run ...", "nova command run template", "nova command run cinematic smoke", "nova command retry smoke failures", "nova command export smoke report", "nova command guided check", "nova command show failures", "nova command retry failures", "nova command load last history", "nova command load history 2", "nova command export history 3", or "nova command clear history".
+        Voice shortcuts: say "nova command smart run ...", "nova command plan ...", "nova command run ...", "nova command run template", "nova command run cinematic smoke", "nova command retry smoke failures", "nova command export smoke report", "nova command load smoke history 2", "nova command export smoke history 1", "nova command clear smoke history", "nova command guided check", "nova command show failures", "nova command retry failures", "nova command load last history", "nova command load history 2", "nova command export history 3", or "nova command clear history".
       </div>
       <div class="hint">
         Keyboard shortcuts in prompt box: Cmd/Ctrl+Enter = Smart Run, Cmd/Ctrl+Shift+Enter = Plan Only, Alt+Enter = Run Template.

@@ -34,6 +34,11 @@ const nodes = {
   retryCinematicSmokeFailuresButton: document.getElementById("retryCinematicSmokeFailuresButton"),
   exportCinematicSmokeReportButton: document.getElementById("exportCinematicSmokeReportButton"),
   clearCinematicSmokeSessionButton: document.getElementById("clearCinematicSmokeSessionButton"),
+  cinematicSmokeHistorySelect: document.getElementById("cinematicSmokeHistorySelect"),
+  loadCinematicSmokeHistoryButton: document.getElementById("loadCinematicSmokeHistoryButton"),
+  exportCinematicSmokeHistoryButton: document.getElementById("exportCinematicSmokeHistoryButton"),
+  clearCinematicSmokeHistoryButton: document.getElementById("clearCinematicSmokeHistoryButton"),
+  cinematicSmokeHistoryStatus: document.getElementById("cinematicSmokeHistoryStatus"),
   cinematicSmokeArtifacts: document.getElementById("cinematicSmokeArtifacts"),
   promptInput: document.getElementById("promptInput"),
   promptPresetSelect: document.getElementById("promptPresetSelect"),
@@ -161,6 +166,9 @@ const PROMPT_PRESET_TEXT_LIMIT = 12000;
 const RUN_MONITOR_HISTORY_SETTINGS_KEY = "nova4d.studio.run_monitor_history.v1";
 const RUN_MONITOR_HISTORY_NONE = "__none__";
 const RUN_MONITOR_HISTORY_MAX = 30;
+const CINEMATIC_SMOKE_HISTORY_SETTINGS_KEY = "nova4d.studio.cinematic_smoke_history.v1";
+const CINEMATIC_SMOKE_HISTORY_NONE = "__none__";
+const CINEMATIC_SMOKE_HISTORY_MAX = 30;
 const VOICE_COMMAND_PREFIX = "nova command";
 const VOICE_COMMAND_FALLBACK_PREFIX = "nova";
 const VOICE_COMMAND_DEDUP_MS = 2500;
@@ -178,6 +186,7 @@ let recentCommandMap = new Map();
 let providerProfiles = [];
 let promptPresets = [];
 let runMonitorHistory = [];
+let cinematicSmokeHistory = [];
 let providerTestState = {
   tested: false,
   ok: false,
@@ -1725,14 +1734,237 @@ function sanitizeCinematicSmokeCommand(command) {
   };
 }
 
+function cinematicSmokeHistoryId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function normalizeCinematicSmokeHistoryEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const id = String(entry.id || "").trim() || cinematicSmokeHistoryId();
+  const commands = (Array.isArray(entry.commands) ? entry.commands : [])
+    .map((command) => sanitizeCinematicSmokeCommand(command))
+    .filter(Boolean);
+  const commandIds = Array.from(new Set(
+    (Array.isArray(entry.command_ids) ? entry.command_ids : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  ));
+  const blocked = (Array.isArray(entry.blocked_commands) ? entry.blocked_commands : []).map((item) => ({
+    route: String(item?.route || "").trim(),
+    reason: String(item?.reason || "blocked").trim(),
+  }));
+  const summary = summarizeCommandStatuses(commands);
+  return {
+    id,
+    workflow_id: String(entry.workflow_id || "cinematic_smoke").trim() || "cinematic_smoke",
+    workflow_name: String(entry.workflow_name || "Cinematic Smoke").trim() || "Cinematic Smoke",
+    status: String(entry.status || "unknown").trim() || "unknown",
+    started_at: String(entry.started_at || new Date().toISOString()).trim() || new Date().toISOString(),
+    ended_at: String(entry.ended_at || new Date().toISOString()).trim() || new Date().toISOString(),
+    options: entry.options && typeof entry.options === "object" ? Object.assign({}, entry.options) : {},
+    command_ids: commandIds.length ? commandIds : commands.map((command) => command.id),
+    summary,
+    commands,
+    blocked_commands: blocked,
+    retries: Number(entry.retries || 0),
+    retry_errors: Number(entry.retry_errors || 0),
+    last_retry_at: String(entry.last_retry_at || "").trim(),
+    last_error: String(entry.last_error || "").trim(),
+  };
+}
+
+function loadCinematicSmokeHistory() {
+  try {
+    const raw = window.localStorage.getItem(CINEMATIC_SMOKE_HISTORY_SETTINGS_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((entry) => normalizeCinematicSmokeHistoryEntry(entry))
+      .filter(Boolean)
+      .slice(0, CINEMATIC_SMOKE_HISTORY_MAX);
+  } catch (_err) {
+    return [];
+  }
+}
+
+function saveCinematicSmokeHistory() {
+  try {
+    window.localStorage.setItem(CINEMATIC_SMOKE_HISTORY_SETTINGS_KEY, JSON.stringify(cinematicSmokeHistory));
+  } catch (_err) {
+    // Ignore local storage failures.
+  }
+}
+
+function selectedCinematicSmokeHistoryEntry() {
+  const selectedId = String(nodes.cinematicSmokeHistorySelect.value || "").trim();
+  if (!selectedId || selectedId === CINEMATIC_SMOKE_HISTORY_NONE) {
+    return null;
+  }
+  return cinematicSmokeHistory.find((entry) => entry.id === selectedId) || null;
+}
+
+function setCinematicSmokeHistoryStatus(text, className = "hint") {
+  nodes.cinematicSmokeHistoryStatus.textContent = text;
+  nodes.cinematicSmokeHistoryStatus.className = className;
+}
+
+function formatCinematicSmokeHistoryOption(entry) {
+  const ended = Number.isFinite(Date.parse(entry.ended_at))
+    ? new Date(entry.ended_at).toLocaleString()
+    : entry.ended_at;
+  const summary = entry.summary || {};
+  return `${ended} | ${entry.status} | ok ${summary.succeeded || 0} fail ${summary.failed || 0} canceled ${summary.canceled || 0}`;
+}
+
+function renderCinematicSmokeHistory(preferredId = "") {
+  const requested = String(preferredId || "").trim();
+  const previous = String(nodes.cinematicSmokeHistorySelect.value || "").trim();
+  const targetSelection = requested || previous;
+  nodes.cinematicSmokeHistorySelect.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = CINEMATIC_SMOKE_HISTORY_NONE;
+  placeholder.textContent = cinematicSmokeHistory.length ? "Select cinematic smoke session" : "No cinematic smoke history";
+  nodes.cinematicSmokeHistorySelect.appendChild(placeholder);
+
+  cinematicSmokeHistory.forEach((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = formatCinematicSmokeHistoryOption(entry);
+    nodes.cinematicSmokeHistorySelect.appendChild(option);
+  });
+
+  if (targetSelection && cinematicSmokeHistory.some((entry) => entry.id === targetSelection)) {
+    nodes.cinematicSmokeHistorySelect.value = targetSelection;
+  } else {
+    nodes.cinematicSmokeHistorySelect.value = CINEMATIC_SMOKE_HISTORY_NONE;
+  }
+  updateCinematicSmokeButtons();
+}
+
+function appendCinematicSmokeHistory(session) {
+  const normalized = normalizeCinematicSmokeHistoryEntry(session);
+  if (!normalized) {
+    return;
+  }
+  cinematicSmokeHistory = [normalized]
+    .concat(cinematicSmokeHistory.filter((entry) => entry.id !== normalized.id))
+    .slice(0, CINEMATIC_SMOKE_HISTORY_MAX);
+  saveCinematicSmokeHistory();
+  renderCinematicSmokeHistory(normalized.id);
+}
+
+function latestCinematicSmokeHistoryEntry() {
+  if (!cinematicSmokeHistory.length) {
+    return null;
+  }
+  return cinematicSmokeHistory[0] || null;
+}
+
+function cinematicSmokeHistoryEntryByIndex(rawIndex) {
+  const parsed = Number.parseInt(String(rawIndex || ""), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return null;
+  }
+  const index = parsed - 1;
+  if (index >= cinematicSmokeHistory.length) {
+    return null;
+  }
+  return {
+    index: parsed,
+    entry: cinematicSmokeHistory[index],
+  };
+}
+
+function clearCinematicSmokeHistory() {
+  cinematicSmokeHistory = [];
+  saveCinematicSmokeHistory();
+  renderCinematicSmokeHistory();
+  setCinematicSmokeHistoryStatus("Cinematic smoke history cleared.", "hint");
+}
+
+async function exportCinematicSmokeHistoryEntry(entry) {
+  const selected = normalizeCinematicSmokeHistoryEntry(entry);
+  if (!selected) {
+    return false;
+  }
+  try {
+    const payload = {
+      exported_at: new Date().toISOString(),
+      session: selected,
+    };
+    const serialized = JSON.stringify(payload, null, 2);
+    const blob = new Blob([serialized], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const stamp = payload.exported_at.replace(/[:.]/g, "-");
+    anchor.href = url;
+    anchor.download = `nova4d-cinematic-smoke-history-${stamp}.json`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+    setCinematicSmokeHistoryStatus("Cinematic smoke history session exported.", "status-ok");
+    return true;
+  } catch (_err) {
+    setCinematicSmokeHistoryStatus("Failed to export cinematic smoke history session.", "status-error");
+    return false;
+  }
+}
+
+function loadCinematicSmokeHistoryEntry(entry) {
+  const selected = normalizeCinematicSmokeHistoryEntry(entry);
+  if (!selected) {
+    setCinematicSmokeHistoryStatus("Select a cinematic smoke history session first.", "status-warn");
+    return false;
+  }
+  setCinematicSmokeSession(selected);
+  renderCinematicSmokeArtifacts(selected.options || {}, selected.command_ids || []);
+  const stageRows = (selected.commands || []).map((command, index) => ({
+    id: command.id,
+    route: command.route,
+    label: command.action || command.route || `Stage ${index + 1}`,
+    status: command.status,
+    blocked_reason: "",
+  })).concat((selected.blocked_commands || []).map((command, index) => ({
+    id: `blocked-history-${index + 1}`,
+    route: command.route,
+    label: command.reason || command.route || `Blocked ${index + 1}`,
+    status: "blocked",
+    blocked_reason: command.reason || "blocked",
+  })));
+  const snapshotById = new Map((selected.commands || []).map((command) => [command.id, command]));
+  renderCinematicSmokeProgress(stageRows, snapshotById);
+  const summary = selected.summary || summarizeCommandStatuses(selected.commands || []);
+  setCinematicSmokeStatus(
+    `${selected.workflow_name}: history loaded | ok ${summary.succeeded || 0} failed ${summary.failed || 0} canceled ${summary.canceled || 0}`,
+    summary.failed > 0 ? "status-error" : "hint"
+  );
+  setCinematicSmokeHistoryStatus("Loaded selected cinematic smoke history session.", "status-ok");
+  return true;
+}
+
 function updateCinematicSmokeButtons() {
   const isRunning = Boolean(nodes.runCinematicSmokeButton.disabled);
   const hasSession = Boolean(lastCinematicSmokeSession);
   const hasCommands = Boolean(lastCinematicSmokeSession?.command_ids?.length);
   const failedCount = Number(lastCinematicSmokeSession?.summary?.failed || 0);
+  const hasHistorySelection = Boolean(selectedCinematicSmokeHistoryEntry());
+  const hasHistory = cinematicSmokeHistory.length > 0;
   nodes.retryCinematicSmokeFailuresButton.disabled = isRunning || !hasCommands || failedCount <= 0;
   nodes.exportCinematicSmokeReportButton.disabled = isRunning || !hasSession;
   nodes.clearCinematicSmokeSessionButton.disabled = isRunning || !hasSession;
+  nodes.loadCinematicSmokeHistoryButton.disabled = isRunning || !hasHistorySelection;
+  nodes.exportCinematicSmokeHistoryButton.disabled = isRunning || !hasHistorySelection;
+  nodes.clearCinematicSmokeHistoryButton.disabled = isRunning || !hasHistory;
 }
 
 function setCinematicSmokeSession(session) {
@@ -1825,11 +2057,14 @@ async function retryCinematicSmokeFailures() {
   const retryable = snapshots.filter((command) => normalizeCommandStatus(command?.status) === "failed");
   if (!retryable.length) {
     setCinematicSmokeStatus("Cinematic smoke: no failed commands to retry.", "hint");
-    setCinematicSmokeSession(Object.assign({}, session, {
+    const finalized = Object.assign({}, session, {
       ended_at: new Date().toISOString(),
       status: "completed",
       commands: snapshots,
-    }));
+    });
+    setCinematicSmokeSession(finalized);
+    appendCinematicSmokeHistory(finalized);
+    setCinematicSmokeHistoryStatus("Saved cinematic smoke retry result to history.", "hint");
     return;
   }
 
@@ -1874,14 +2109,17 @@ async function retryCinematicSmokeFailures() {
   await loadSystemStatus();
   await maybeAutoMonitorQueued(queuedRows, "Cinematic Smoke retry");
   const refreshed = await fetchCommandSnapshots(session.command_ids);
-  setCinematicSmokeSession(Object.assign({}, session, {
+  const finalized = Object.assign({}, session, {
     ended_at: new Date().toISOString(),
     status: "retry",
     commands: refreshed,
     retries: Number(session.retries || 0) + requeued,
     retry_errors: Number(session.retry_errors || 0) + retryErrors,
     last_retry_at: new Date().toISOString(),
-  }));
+  });
+  setCinematicSmokeSession(finalized);
+  appendCinematicSmokeHistory(finalized);
+  setCinematicSmokeHistoryStatus("Saved cinematic smoke retry session to history.", retryErrors ? "status-warn" : "hint");
 }
 
 function setRunMonitorStatus(text, className = "hint") {
@@ -2843,10 +3081,13 @@ async function runCinematicSmoke() {
         `${workflow.name || "Cinematic Smoke"}: no commands queued${blocked.length ? ` | blocked ${blocked.length}` : ""}.`,
         blocked.length ? "status-error" : "status-warn"
       );
-      setCinematicSmokeSession(Object.assign({}, lastCinematicSmokeSession || {}, {
+      const finalized = Object.assign({}, lastCinematicSmokeSession || {}, {
         status: blocked.length ? "blocked" : "queued",
         ended_at: new Date().toISOString(),
-      }));
+      });
+      setCinematicSmokeSession(finalized);
+      appendCinematicSmokeHistory(finalized);
+      setCinematicSmokeHistoryStatus("Saved cinematic smoke session to history.", "hint");
       return;
     }
 
@@ -2874,22 +3115,31 @@ async function runCinematicSmoke() {
         statusClass
       );
       if (complete) {
-        setCinematicSmokeSession(Object.assign({}, lastCinematicSmokeSession || {}, {
+        const finalized = Object.assign({}, lastCinematicSmokeSession || {}, {
           status: summary.failed > 0 ? "completed_with_failures" : "completed",
           ended_at: new Date().toISOString(),
           commands: snapshots,
-        }));
+        });
+        setCinematicSmokeSession(finalized);
+        appendCinematicSmokeHistory(finalized);
+        setCinematicSmokeHistoryStatus(
+          `Saved cinematic smoke session to history (${summary.total} command${summary.total === 1 ? "" : "s"}).`,
+          summary.failed > 0 ? "status-warn" : "hint"
+        );
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, RUN_MONITOR_POLL_MS));
     }
     if (token === cinematicSmokeToken) {
       const timeoutSnapshots = await fetchCommandSnapshots(commandIds);
-      setCinematicSmokeSession(Object.assign({}, lastCinematicSmokeSession || {}, {
+      const finalized = Object.assign({}, lastCinematicSmokeSession || {}, {
         status: "timeout",
         ended_at: new Date().toISOString(),
         commands: timeoutSnapshots,
-      }));
+      });
+      setCinematicSmokeSession(finalized);
+      appendCinematicSmokeHistory(finalized);
+      setCinematicSmokeHistoryStatus("Saved timed-out cinematic smoke session to history.", "status-warn");
       setCinematicSmokeStatus(
         `Cinematic smoke monitor timed out after ${Math.floor(CINEMATIC_SMOKE_TIMEOUT_MS / 1000)}s.`,
         "status-warn"
@@ -2897,7 +3147,7 @@ async function runCinematicSmoke() {
     }
   } catch (err) {
     const existing = lastCinematicSmokeSession || {};
-    setCinematicSmokeSession(Object.assign({}, existing, {
+    const finalized = Object.assign({}, existing, {
       workflow_id: existing.workflow_id || "cinematic_smoke",
       workflow_name: existing.workflow_name || "Cinematic Smoke",
       status: "error",
@@ -2908,7 +3158,10 @@ async function runCinematicSmoke() {
       commands: existing.commands || [],
       blocked_commands: existing.blocked_commands || [],
       last_error: err.message,
-    }));
+    });
+    setCinematicSmokeSession(finalized);
+    appendCinematicSmokeHistory(finalized);
+    setCinematicSmokeHistoryStatus("Saved failed cinematic smoke session to history.", "status-error");
     setCinematicSmokeStatus(`Cinematic smoke run failed: ${err.message}`, "status-error");
   } finally {
     if (token === cinematicSmokeToken) {
@@ -3047,6 +3300,52 @@ function parseVoiceShortcut(rawTranscript) {
       prompt: "",
     };
   }
+  const loadSmokeHistoryIndexMatch = command.match(/^load\s+smoke\s+history(?:\s+session)?\s+#?(\d+)$/);
+  if (loadSmokeHistoryIndexMatch) {
+    const index = Number.parseInt(loadSmokeHistoryIndexMatch[1], 10);
+    return {
+      action: "load-smoke-history-index",
+      label: `Load cinematic smoke history #${index}`,
+      key: `load-smoke-history-index-${index}`,
+      prompt: "",
+      index,
+    };
+  }
+  const exportSmokeHistoryIndexMatch = command.match(/^export\s+smoke\s+history(?:\s+session)?\s+#?(\d+)$/);
+  if (exportSmokeHistoryIndexMatch) {
+    const index = Number.parseInt(exportSmokeHistoryIndexMatch[1], 10);
+    return {
+      action: "export-smoke-history-index",
+      label: `Export cinematic smoke history #${index}`,
+      key: `export-smoke-history-index-${index}`,
+      prompt: "",
+      index,
+    };
+  }
+  if (/^load(?:\s+last)?\s+smoke\s+history(?:\s+session)?$/.test(command)) {
+    return {
+      action: "load-smoke-history",
+      label: "Load latest cinematic smoke history",
+      key: "load-smoke-history",
+      prompt: "",
+    };
+  }
+  if (/^export(?:\s+last)?\s+smoke\s+history(?:\s+session)?$/.test(command)) {
+    return {
+      action: "export-smoke-history",
+      label: "Export latest cinematic smoke history",
+      key: "export-smoke-history",
+      prompt: "",
+    };
+  }
+  if (/^clear\s+smoke\s+history$/.test(command)) {
+    return {
+      action: "clear-smoke-history",
+      label: "Clear cinematic smoke history",
+      key: "clear-smoke-history",
+      prompt: "",
+    };
+  }
   if (/^preview\s+template$/.test(command)) {
     return { action: "preview-template", label: "Preview selected template", key: "preview-template", prompt: "" };
   }
@@ -3156,7 +3455,7 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
 
     if (shortcut.action === "help") {
       nodes.voiceStatus.textContent =
-        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command run cinematic smoke\", \"nova command retry smoke failures\", \"nova command export smoke report\", \"nova command show failures\", \"nova command retry failures\", \"nova command stop monitor\", \"nova command load last history\", \"nova command load history 2\", \"nova command export history 3\", \"nova command clear history\".";
+        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command run cinematic smoke\", \"nova command retry smoke failures\", \"nova command export smoke report\", \"nova command load smoke history 2\", \"nova command export smoke history 1\", \"nova command clear smoke history\", \"nova command show failures\", \"nova command retry failures\", \"nova command stop monitor\", \"nova command load last history\", \"nova command load history 2\", \"nova command export history 3\", \"nova command clear history\".";
       return true;
     }
 
@@ -3222,6 +3521,59 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
     if (shortcut.action === "clear-cinematic-smoke-session") {
       clearCinematicSmokeSession(true);
       nodes.voiceStatus.textContent = "Voice command complete: cinematic smoke session cleared.";
+      return true;
+    }
+    if (shortcut.action === "load-smoke-history") {
+      const selected = latestCinematicSmokeHistoryEntry();
+      if (!selected) {
+        setCinematicSmokeHistoryStatus("No cinematic smoke history session available to load.", "status-warn");
+        nodes.voiceStatus.textContent = "Voice command finished: no cinematic smoke history session available.";
+        return true;
+      }
+      renderCinematicSmokeHistory(selected.id);
+      loadCinematicSmokeHistoryEntry(selected);
+      nodes.voiceStatus.textContent = "Voice command complete: latest cinematic smoke history loaded.";
+      return true;
+    }
+    if (shortcut.action === "load-smoke-history-index") {
+      const selected = cinematicSmokeHistoryEntryByIndex(shortcut.index);
+      if (!selected || !selected.entry) {
+        setCinematicSmokeHistoryStatus(`Cinematic smoke history #${shortcut.index} is not available.`, "status-warn");
+        nodes.voiceStatus.textContent = `Voice command finished: cinematic smoke history #${shortcut.index} not found.`;
+        return true;
+      }
+      renderCinematicSmokeHistory(selected.entry.id);
+      loadCinematicSmokeHistoryEntry(selected.entry);
+      nodes.voiceStatus.textContent = `Voice command complete: cinematic smoke history #${selected.index} loaded.`;
+      return true;
+    }
+    if (shortcut.action === "export-smoke-history") {
+      const selected = latestCinematicSmokeHistoryEntry();
+      if (!selected) {
+        setCinematicSmokeHistoryStatus("No cinematic smoke history session available to export.", "status-warn");
+        nodes.voiceStatus.textContent = "Voice command finished: no cinematic smoke history session available.";
+        return true;
+      }
+      renderCinematicSmokeHistory(selected.id);
+      await exportCinematicSmokeHistoryEntry(selected);
+      nodes.voiceStatus.textContent = "Voice command complete: latest cinematic smoke history exported.";
+      return true;
+    }
+    if (shortcut.action === "export-smoke-history-index") {
+      const selected = cinematicSmokeHistoryEntryByIndex(shortcut.index);
+      if (!selected || !selected.entry) {
+        setCinematicSmokeHistoryStatus(`Cinematic smoke history #${shortcut.index} is not available.`, "status-warn");
+        nodes.voiceStatus.textContent = `Voice command finished: cinematic smoke history #${shortcut.index} not found.`;
+        return true;
+      }
+      renderCinematicSmokeHistory(selected.entry.id);
+      await exportCinematicSmokeHistoryEntry(selected.entry);
+      nodes.voiceStatus.textContent = `Voice command complete: cinematic smoke history #${selected.index} exported.`;
+      return true;
+    }
+    if (shortcut.action === "clear-smoke-history") {
+      clearCinematicSmokeHistory();
+      nodes.voiceStatus.textContent = "Voice command complete: cinematic smoke history cleared.";
       return true;
     }
     if (shortcut.action === "preview-template") {
@@ -3616,6 +3968,41 @@ nodes.exportCinematicSmokeReportButton.addEventListener("click", async () => {
 nodes.clearCinematicSmokeSessionButton.addEventListener("click", () => {
   clearCinematicSmokeSession(true);
 });
+nodes.cinematicSmokeHistorySelect.addEventListener("change", () => {
+  const selected = selectedCinematicSmokeHistoryEntry();
+  if (!selected) {
+    if (cinematicSmokeHistory.length) {
+      setCinematicSmokeHistoryStatus("Select a cinematic smoke history session.", "hint");
+    } else {
+      setCinematicSmokeHistoryStatus("No cinematic smoke history yet.", "hint");
+    }
+  } else {
+    setCinematicSmokeHistoryStatus(
+      `Selected cinematic smoke session (${selected.summary.total || selected.commands.length} command${(selected.summary.total || selected.commands.length) === 1 ? "" : "s"}).`,
+      "hint"
+    );
+  }
+  updateCinematicSmokeButtons();
+});
+nodes.loadCinematicSmokeHistoryButton.addEventListener("click", () => {
+  const selected = selectedCinematicSmokeHistoryEntry();
+  if (!selected) {
+    setCinematicSmokeHistoryStatus("Select a cinematic smoke history session first.", "status-warn");
+    return;
+  }
+  loadCinematicSmokeHistoryEntry(selected);
+});
+nodes.exportCinematicSmokeHistoryButton.addEventListener("click", async () => {
+  const selected = selectedCinematicSmokeHistoryEntry();
+  if (!selected) {
+    setCinematicSmokeHistoryStatus("Select a cinematic smoke history session first.", "status-warn");
+    return;
+  }
+  await exportCinematicSmokeHistoryEntry(selected);
+});
+nodes.clearCinematicSmokeHistoryButton.addEventListener("click", () => {
+  clearCinematicSmokeHistory();
+});
 nodes.queuePlanButton.addEventListener("click", queueLastPlan);
 nodes.providerTestButton.addEventListener("click", testProviderConnection);
 nodes.guidedCheckButton.addEventListener("click", runGuidedCheck);
@@ -3752,9 +4139,11 @@ window.addEventListener("beforeunload", () => {
   providerProfiles = loadProviderProfiles();
   promptPresets = loadPromptPresets();
   runMonitorHistory = loadRunMonitorHistory();
+  cinematicSmokeHistory = loadCinematicSmokeHistory();
   renderProviderProfiles();
   renderPromptPresets();
   renderRunMonitorHistory();
+  renderCinematicSmokeHistory();
   applyStoredSettings(loadStoredSettings());
   if (nodes.autoMonitorRuns.checked) {
     setRunMonitorStatus("Run monitor idle.", "hint");
@@ -3782,6 +4171,14 @@ window.addEventListener("beforeunload", () => {
     );
   } else {
     setRunMonitorHistoryStatus("No run monitor history yet.", "hint");
+  }
+  if (cinematicSmokeHistory.length > 0) {
+    setCinematicSmokeHistoryStatus(
+      `Loaded ${cinematicSmokeHistory.length} cinematic smoke history session${cinematicSmokeHistory.length === 1 ? "" : "s"}.`,
+      "hint"
+    );
+  } else {
+    setCinematicSmokeHistoryStatus("No cinematic smoke history yet.", "hint");
   }
   setCinematicSmokeStatus("Cinematic smoke test idle.", "hint");
   resetCinematicSmokeProgress();
