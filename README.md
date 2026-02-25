@@ -75,6 +75,7 @@ From the UI you can:
 - Query scene graph data via `/nova4d/scene/graph`, `/nova4d/scene/objects`, `/nova4d/scene/materials`, `/nova4d/scene/object`
 - Use context-aware planning by default (planner reads latest live scene snapshot)
 - Persist non-secret Studio settings in browser local storage
+- Watch live queue lifecycle updates in Studio via `/nova4d/stream`
 - Inspect recent command execution in one place
 
 Detailed guide: `docs/STUDIO_UI.md`

@@ -27,6 +27,11 @@
           <button id="refreshButton" class="secondary">Refresh Status</button>
           <button id="loadRecentButton" class="secondary">Load Recent</button>
         </div>
+        <label class="toggle-row">
+          <input id="liveStreamEnabled" type="checkbox" checked />
+          <span>Live command stream</span>
+        </label>
+        <div id="streamStatus" class="hint">Live stream offline.</div>
         <pre id="bridgeInfo" class="mono small">-</pre>
       </article>
 
@@ -126,6 +131,8 @@
         </thead>
         <tbody id="recentTableBody"></tbody>
       </table>
+      <h3>Live Event Feed</h3>
+      <ul id="streamEvents" class="event-feed"></ul>
     </section>
   </main>
 

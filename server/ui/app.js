@@ -20,6 +20,9 @@ const nodes = {
   runSummary: document.getElementById("runSummary"),
   queuedCommands: document.getElementById("queuedCommands"),
   recentTableBody: document.getElementById("recentTableBody"),
+  liveStreamEnabled: document.getElementById("liveStreamEnabled"),
+  streamStatus: document.getElementById("streamStatus"),
+  streamEvents: document.getElementById("streamEvents"),
   refreshButton: document.getElementById("refreshButton"),
   loadRecentButton: document.getElementById("loadRecentButton"),
   voiceStart: document.getElementById("voiceStart"),
@@ -43,6 +46,11 @@ const providerDefaults = {
 let recognition = null;
 let lastPlan = null;
 const STUDIO_SETTINGS_KEY = "nova4d.studio.settings.v1";
+let liveStreamSource = null;
+let liveStreamReconnectTimer = null;
+let liveStreamRefreshTimer = null;
+const LIVE_STREAM_RECONNECT_MS = 2000;
+const LIVE_STREAM_MAX_EVENTS = 40;
 
 function escapeHtml(input) {
   return String(input)
@@ -86,6 +94,7 @@ function saveStudioSettings() {
     allow_dangerous: Boolean(nodes.allowDangerous.checked),
     use_scene_context: Boolean(nodes.useSceneContext.checked),
     refresh_scene_context: Boolean(nodes.refreshSceneContext.checked),
+    live_stream_enabled: Boolean(nodes.liveStreamEnabled.checked),
   };
   try {
     window.localStorage.setItem(STUDIO_SETTINGS_KEY, JSON.stringify(settings));
@@ -123,6 +132,9 @@ function applyStoredSettings(settings) {
   if (typeof settings.refresh_scene_context === "boolean") {
     nodes.refreshSceneContext.checked = settings.refresh_scene_context;
   }
+  if (typeof settings.live_stream_enabled === "boolean") {
+    nodes.liveStreamEnabled.checked = settings.live_stream_enabled;
+  }
 }
 
 async function api(path, options = {}) {
@@ -146,6 +158,153 @@ async function api(path, options = {}) {
 function setHealthBadge(ok, text) {
   nodes.healthBadge.textContent = text;
   nodes.healthBadge.className = `health ${ok ? "status-ok" : "status-error"}`;
+}
+
+function setStreamStatus(text, className = "hint") {
+  nodes.streamStatus.textContent = text;
+  nodes.streamStatus.className = className;
+}
+
+function parseEventData(raw) {
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch (_err) {
+    return { raw: String(raw || "") };
+  }
+}
+
+function eventSummary(eventName, payload) {
+  if (eventName === "dispatched") {
+    const count = Number(payload.count || 0);
+    const client = payload.client_id ? ` to ${payload.client_id}` : "";
+    return `count=${count}${client}`;
+  }
+  if (payload.id) {
+    return `${payload.id}`;
+  }
+  return "";
+}
+
+function pushStreamEvent(eventName, payload) {
+  if (nodes.streamEvents.firstElementChild && nodes.streamEvents.firstElementChild.classList.contains("hint")) {
+    nodes.streamEvents.innerHTML = "";
+  }
+  const ts = payload.ts || new Date().toISOString();
+  const time = Number.isFinite(Date.parse(ts))
+    ? new Date(ts).toLocaleTimeString()
+    : new Date().toLocaleTimeString();
+  const summary = eventSummary(eventName, payload);
+  const li = document.createElement("li");
+  li.textContent = summary ? `${time} | ${eventName} | ${summary}` : `${time} | ${eventName}`;
+  nodes.streamEvents.prepend(li);
+  while (nodes.streamEvents.children.length > LIVE_STREAM_MAX_EVENTS) {
+    nodes.streamEvents.removeChild(nodes.streamEvents.lastElementChild);
+  }
+}
+
+async function refreshFromStream() {
+  if (liveStreamRefreshTimer) {
+    return;
+  }
+  liveStreamRefreshTimer = setTimeout(async () => {
+    liveStreamRefreshTimer = null;
+    await loadHealth();
+    await loadRecent();
+  }, 250);
+}
+
+function streamUrl() {
+  const url = new URL("/nova4d/stream", window.location.origin);
+  url.searchParams.set("client_id", "nova4d-studio");
+  const key = (nodes.bridgeApiKey.value || "").trim();
+  if (key) {
+    url.searchParams.set("api_key", key);
+  }
+  return url.toString();
+}
+
+function clearLiveStreamReconnectTimer() {
+  if (!liveStreamReconnectTimer) {
+    return;
+  }
+  clearTimeout(liveStreamReconnectTimer);
+  liveStreamReconnectTimer = null;
+}
+
+function disconnectLiveStream(reason = "Live stream offline.") {
+  clearLiveStreamReconnectTimer();
+  if (liveStreamSource) {
+    liveStreamSource.close();
+    liveStreamSource = null;
+  }
+  setStreamStatus(reason, "hint");
+}
+
+function connectLiveStream() {
+  disconnectLiveStream("Connecting live stream...");
+  if (!nodes.liveStreamEnabled.checked) {
+    setStreamStatus("Live stream disabled.", "hint");
+    return;
+  }
+
+  const source = new EventSource(streamUrl());
+  liveStreamSource = source;
+  setStreamStatus("Connecting live stream...", "status-warn");
+
+  source.onopen = () => {
+    if (liveStreamSource !== source) {
+      return;
+    }
+    setStreamStatus("Live stream connected.", "status-ok");
+  };
+
+  source.addEventListener("connected", (event) => {
+    if (liveStreamSource !== source) {
+      return;
+    }
+    pushStreamEvent("connected", parseEventData(event.data));
+  });
+
+  const queueEvents = ["queued", "dispatched", "succeeded", "failed", "canceled", "requeued"];
+  queueEvents.forEach((eventName) => {
+    source.addEventListener(eventName, async (event) => {
+      if (liveStreamSource !== source) {
+        return;
+      }
+      const payload = parseEventData(event.data);
+      pushStreamEvent(eventName, payload);
+      await refreshFromStream();
+    });
+  });
+
+  source.addEventListener("heartbeat", (event) => {
+    if (liveStreamSource !== source) {
+      return;
+    }
+    const payload = parseEventData(event.data);
+    const stamp = payload.ts || new Date().toISOString();
+    const time = Number.isFinite(Date.parse(stamp))
+      ? new Date(stamp).toLocaleTimeString()
+      : new Date().toLocaleTimeString();
+    setStreamStatus(`Live stream connected | heartbeat ${time}`, "status-ok");
+  });
+
+  source.onerror = () => {
+    if (liveStreamSource !== source) {
+      return;
+    }
+    liveStreamSource.close();
+    liveStreamSource = null;
+    setStreamStatus("Live stream disconnected. Reconnecting...", "status-warn");
+    clearLiveStreamReconnectTimer();
+    if (!nodes.liveStreamEnabled.checked) {
+      return;
+    }
+    liveStreamReconnectTimer = setTimeout(() => {
+      liveStreamReconnectTimer = null;
+      connectLiveStream();
+    }, LIVE_STREAM_RECONNECT_MS);
+  };
 }
 
 async function loadHealth() {
@@ -491,6 +650,21 @@ nodes.useSceneContext.addEventListener("change", () => {
   saveStudioSettings();
 });
 
+nodes.liveStreamEnabled.addEventListener("change", () => {
+  saveStudioSettings();
+  if (nodes.liveStreamEnabled.checked) {
+    connectLiveStream();
+  } else {
+    disconnectLiveStream("Live stream disabled.");
+  }
+});
+
+nodes.bridgeApiKey.addEventListener("change", () => {
+  if (nodes.liveStreamEnabled.checked) {
+    connectLiveStream();
+  }
+});
+
 nodes.refreshButton.addEventListener("click", loadHealth);
 nodes.loadRecentButton.addEventListener("click", loadRecent);
 nodes.snapshotButton.addEventListener("click", captureSnapshot);
@@ -505,7 +679,9 @@ nodes.providerTestButton.addEventListener("click", testProviderConnection);
   nodes.maxCommands,
   nodes.safetyMode,
   nodes.allowDangerous,
+  nodes.useSceneContext,
   nodes.refreshSceneContext,
+  nodes.liveStreamEnabled,
 ].forEach((node) => {
   node.addEventListener("change", saveStudioSettings);
 });
@@ -514,18 +690,28 @@ nodes.providerTestButton.addEventListener("click", testProviderConnection);
   node.addEventListener("input", saveStudioSettings);
 });
 
+window.addEventListener("beforeunload", () => {
+  disconnectLiveStream("Live stream offline.");
+});
+
 (async function init() {
   nodes.providerKind.value = "builtin";
   nodes.safetyMode.value = "balanced";
   nodes.allowDangerous.checked = false;
   nodes.useSceneContext.checked = true;
   nodes.refreshSceneContext.checked = true;
+  nodes.liveStreamEnabled.checked = true;
   nodes.refreshSceneContext.disabled = false;
+  nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
   applyStoredSettings(loadStoredSettings());
   applyProviderDefaults();
   setProviderStatus("Provider not tested in this session.", "hint");
+  setStreamStatus("Live stream offline.", "hint");
   saveStudioSettings();
   initVoice();
   await loadHealth();
   await loadRecent();
+  if (nodes.liveStreamEnabled.checked) {
+    connectLiveStream();
+  }
 })();

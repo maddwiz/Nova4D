@@ -87,6 +87,12 @@ body {
   letter-spacing: 0.2px;
 }
 
+.card h3 {
+  margin: 14px 0 8px;
+  font-size: 0.95rem;
+  color: var(--text-dim);
+}
+
 label {
   display: block;
   margin-bottom: 10px;
@@ -184,6 +190,29 @@ button:hover {
 .plan-list li {
   margin-bottom: 10px;
   line-height: 1.35;
+}
+
+.event-feed {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  max-height: 220px;
+  overflow: auto;
+}
+
+.event-feed li {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.event-feed li:last-child {
+  border-bottom: none;
 }
 
 .code-inline {

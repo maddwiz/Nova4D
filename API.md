@@ -1168,3 +1168,9 @@ Studio UI:
 ```bash
 curl -N "${BASE_URL}/nova4d/stream" "${AUTH_HEADER[@]}"
 ```
+
+Browser EventSource with API key query parameter:
+
+```bash
+echo "new EventSource('/nova4d/stream?api_key=YOUR_KEY&client_id=nova4d-studio')"
+```

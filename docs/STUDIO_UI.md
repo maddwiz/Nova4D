@@ -19,6 +19,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Queues the exact reviewed plan via `/nova4d/assistant/queue` (no re-plan drift)
 - Captures scene snapshots via `/nova4d/introspection/request` and `/nova4d/introspection/latest`
 - Supports scene query endpoints (`/nova4d/scene/graph`, `/nova4d/scene/objects`, `/nova4d/scene/materials`, `/nova4d/scene/object`)
+- Subscribes to `/nova4d/stream` for live queue events (queued/dispatched/succeeded/failed)
 - Shows recent queue history from `/nova4d/commands/recent`
 - Persists non-secret Studio settings in browser local storage
 
