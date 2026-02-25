@@ -10,13 +10,14 @@ The local defaults (`1234567`, `1234568`, `1234569`) are placeholders only.
 
 ## Where to Request IDs
 
-1. Sign in to the Maxon developers forum and PluginCafe system.
-2. Open the official plugin ID request thread:
-   - [How To Apply for Plugins IDs](https://developers.maxon.net/forum/topic/15195/how-to-apply-for-plugins-ids)
-3. Use the ID Generator link from that thread:
-   - [PluginCafe ID Generator](https://plugincafe.maxon.net/pid)
-
-The Maxon team notes this flow is on the legacy forum system; use the old PluginCafe account/auth flow shown in the thread.
+1. Open Maxon's official Plugin Identifiers page:
+   - [Maxon Developers: Plugin Identifiers](https://developers.maxon.net/forum/pid)
+2. If access is denied or your account is not provisioned, request access:
+   - [Maxon Developers: Request Access](https://developers.maxon.net/forum/request_access)
+3. If access still fails, contact Maxon developers support:
+   - [Maxon Developers: Contact](https://developers.maxon.net/forum/contact)
+4. The ID generation workflow runs through PluginCafe (legacy system used by Maxon for IDs):
+   - [PluginCafe](https://plugincafe.maxon.net/)
 
 ## How Many IDs to Generate
 
