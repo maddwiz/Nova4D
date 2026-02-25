@@ -350,6 +350,11 @@ const WORKFLOW_SPECS = [
   { id: "redshift_material", name: "Redshift Material", description: "Create and assign a Redshift material." },
   { id: "animate_render", name: "Animate + Render", description: "Set keys and render frame 0." },
   { id: "full_smoke", name: "Full Workflow Smoke", description: "Cube + cloner + Redshift + animation + render." },
+  {
+    id: "cinematic_smoke",
+    name: "Cinematic Smoke",
+    description: "Cube + cloner + Redshift + animation + render + glTF export/import.",
+  },
 ];
 
 const workflowById = new Map(WORKFLOW_SPECS.map((workflow) => [workflow.id, workflow]));
@@ -365,6 +370,8 @@ function workflowDefaults(options = {}) {
   const renderFrame = parseInteger(options.render_frame, frameStart, -100000, 1000000);
   const renderOutput = String(options.render_output || "/tmp/nova4d-workflow-frame.png").trim()
     || "/tmp/nova4d-workflow-frame.png";
+  const gltfOutput = String(options.gltf_output || "/tmp/nova4d-workflow-smoke.gltf").trim()
+    || "/tmp/nova4d-workflow-smoke.gltf";
 
   return {
     object_name: objectName,
@@ -376,6 +383,7 @@ function workflowDefaults(options = {}) {
     end_value: endValue,
     render_frame: renderFrame,
     render_output: renderOutput,
+    gltf_output: gltfOutput,
   };
 }
 
@@ -436,6 +444,21 @@ function buildWorkflowCommands(workflowId, options = {}) {
     },
     reason: "Render workflow preview frame.",
   };
+  const exportGltf = {
+    route: "/nova4d/io/export/gltf",
+    payload: {
+      output_path: defaults.gltf_output,
+    },
+    reason: "Export workflow scene to glTF.",
+  };
+  const importBlenderGltf = {
+    route: "/nova4d/blender/import-gltf",
+    payload: {
+      file_path: defaults.gltf_output,
+      scale_fix: "blender_to_c4d",
+    },
+    reason: "Validate Blender glTF import path.",
+  };
 
   if (workflowId === "spawn_cube") {
     return [spawnCube];
@@ -451,6 +474,19 @@ function buildWorkflowCommands(workflowId, options = {}) {
   }
   if (workflowId === "full_smoke") {
     return [spawnCube, createCloner, createRedshift, assignMaterial, keyStart, keyEnd, renderFrame];
+  }
+  if (workflowId === "cinematic_smoke") {
+    return [
+      spawnCube,
+      createCloner,
+      createRedshift,
+      assignMaterial,
+      keyStart,
+      keyEnd,
+      renderFrame,
+      exportGltf,
+      importBlenderGltf,
+    ];
   }
   return [];
 }

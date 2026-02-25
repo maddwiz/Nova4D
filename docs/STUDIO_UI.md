@@ -14,7 +14,8 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Tests provider connectivity before plan/run (`/nova4d/assistant/provider-test`)
 - Provides quick workflow templates for common one-click actions (deterministic mode uses `/nova4d/workflows/run`)
 - Includes a toggle to run templates through AI planning or deterministic workflow execution
-- Supports deterministic workflow option inputs and a preview action before queueing
+- Supports deterministic workflow option inputs (including glTF output) and a preview action before queueing
+- Includes one-click Cinematic Smoke run with stage-by-stage progress and artifact links
 - Supports saved prompt presets for common text instructions
 - Includes Smart Run to validate provider readiness before execution
 - Can auto-monitor queued command IDs to completion with live status summary
@@ -24,7 +25,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Includes a one-click guided checklist (bridge health, local readiness, worker probe, provider status)
 - Shows consolidated system status (queue, readiness, stream clients, snapshot + worker activity)
 - Accepts typed prompts or voice dictation (Web Speech API)
-- Supports voice command shortcuts prefixed with `nova command` for smart-run/plan/run/template/check actions plus monitor-history load/export/clear
+- Supports voice command shortcuts prefixed with `nova command` for smart-run/plan/run/template/check actions plus monitor-history load/export/clear (including indexed commands like `load history 2`)
 - Supports prompt keyboard shortcuts (`Cmd/Ctrl+Enter`, `Cmd/Ctrl+Shift+Enter`, `Alt+Enter`)
 - Applies safety policy (`strict`, `balanced`, `unrestricted`) before queueing
 - Uses live scene context by default (with toggle to refresh per request)

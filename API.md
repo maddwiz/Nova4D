@@ -56,7 +56,19 @@ curl -s -X POST "${BASE_URL}/nova4d/workflows/run" \
   "${AUTH_HEADER[@]}" \
   -H 'Content-Type: application/json' \
   -d '{
-  "workflow_id": "full_smoke",
+  "workflow_id": "cinematic_smoke",
+  "options": {
+    "object_name": "SmokeCube",
+    "cloner_name": "SmokeCloner",
+    "material_name": "SmokeRedshiftMat",
+    "frame_start": 0,
+    "frame_end": 30,
+    "start_value": 0,
+    "end_value": 180,
+    "render_frame": 12,
+    "render_output": "/tmp/nova4d-smoke-frame.png",
+    "gltf_output": "/tmp/nova4d-smoke.gltf"
+  },
   "safety": {
     "mode": "balanced",
     "allow_dangerous": false

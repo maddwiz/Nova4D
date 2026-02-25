@@ -70,14 +70,16 @@ From the UI you can:
 - Test provider connectivity before planning/running
 - Use one-click quick workflow templates for common tasks (AI-planned or deterministic via `/nova4d/workflows/run`)
 - Toggle template mode between AI planning and deterministic execution
-- Configure deterministic workflow options (names/frame range/output) and preview before run
+- Configure deterministic workflow options (names/frame range/render output/glTF output) and preview before run
+- Run one-click Cinematic Smoke with live stage progress (cube -> cloner -> Redshift -> animate -> render -> glTF export/import)
+- Open render/glTF artifact links and per-command links directly from the Cinematic Smoke panel
 - Save/load/delete reusable prompt presets for repeatable requests
 - Use Smart Run to auto-validate provider config before execution
 - Auto monitor queued command completion with live success/fail progress
 - Triage last monitored run with one-click failure inspection, retry, export, and session reset
 - Persist run monitor history (latest 30 sessions), then reload/export/clear past sessions
 - Dictate prompts with browser voice input
-- Use voice shortcuts (`nova command smart run ...`, `nova command plan ...`, `nova command run ...`, `nova command run template`, `nova command guided check`, `nova command load last history`, `nova command export last history`, `nova command clear history`)
+- Use voice shortcuts (`nova command smart run ...`, `nova command plan ...`, `nova command run ...`, `nova command run template`, `nova command run cinematic smoke`, `nova command guided check`, `nova command load last history`, `nova command load history 2`, `nova command export history 3`, `nova command clear history`)
 - Use keyboard shortcuts in the prompt box (`Cmd/Ctrl+Enter` Smart Run, `Cmd/Ctrl+Shift+Enter` Plan, `Alt+Enter` Run Template)
 - Run one-click preflight diagnostics (paths, plugin presence, worker probe)
 - Run a one-click guided checklist for bridge/local/worker/provider readiness

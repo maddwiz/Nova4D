@@ -24,9 +24,14 @@ const nodes = {
   workflowEndValue: document.getElementById("workflowEndValue"),
   workflowRenderFrame: document.getElementById("workflowRenderFrame"),
   workflowRenderOutput: document.getElementById("workflowRenderOutput"),
+  workflowGltfOutput: document.getElementById("workflowGltfOutput"),
   loadTemplateButton: document.getElementById("loadTemplateButton"),
   previewTemplateButton: document.getElementById("previewTemplateButton"),
   runTemplateButton: document.getElementById("runTemplateButton"),
+  runCinematicSmokeButton: document.getElementById("runCinematicSmokeButton"),
+  cinematicSmokeStatus: document.getElementById("cinematicSmokeStatus"),
+  cinematicSmokeProgress: document.getElementById("cinematicSmokeProgress"),
+  cinematicSmokeArtifacts: document.getElementById("cinematicSmokeArtifacts"),
   promptInput: document.getElementById("promptInput"),
   promptPresetSelect: document.getElementById("promptPresetSelect"),
   promptPresetName: document.getElementById("promptPresetName"),
@@ -133,6 +138,11 @@ const WORKFLOW_TEMPLATES = [
     label: "Full Workflow Smoke",
     prompt: "Create a cube, create a MoGraph cloner, create and assign a Redshift material, animate position from frame 0 to 30, then render frame 0.",
   },
+  {
+    id: "cinematic_smoke",
+    label: "Cinematic Smoke",
+    prompt: "Run a deterministic cinematic smoke pass with cube, cloner, Redshift material, animation, render, and Blender glTF import validation.",
+  },
 ];
 
 let recognition = null;
@@ -153,6 +163,9 @@ const VOICE_COMMAND_FALLBACK_PREFIX = "nova";
 const VOICE_COMMAND_DEDUP_MS = 2500;
 const RUN_MONITOR_POLL_MS = 900;
 const RUN_MONITOR_TIMEOUT_MS = 3 * 60 * 1000;
+const CINEMATIC_SMOKE_TIMEOUT_MS = 4 * 60 * 1000;
+const CINEMATIC_SMOKE_DEFAULT_RENDER_OUTPUT = "/tmp/nova4d-workflow-frame.png";
+const CINEMATIC_SMOKE_DEFAULT_GLTF_OUTPUT = "/tmp/nova4d-workflow-smoke.gltf";
 let liveStreamSource = null;
 let liveStreamReconnectTimer = null;
 let liveStreamRefreshTimer = null;
@@ -175,6 +188,7 @@ let lastVoiceShortcut = { key: "", at: 0 };
 let smartRunInProgress = false;
 let runMonitorToken = 0;
 let runMonitorActive = false;
+let cinematicSmokeToken = 0;
 let lastRunMonitorSource = "";
 let lastRunMonitorCommandIds = [];
 let lastRunMonitorSnapshots = [];
@@ -599,6 +613,7 @@ function saveStudioSettings() {
     workflow_end_value: String(nodes.workflowEndValue.value || "180"),
     workflow_render_frame: String(nodes.workflowRenderFrame.value || "0"),
     workflow_render_output: (nodes.workflowRenderOutput.value || "").trim(),
+    workflow_gltf_output: (nodes.workflowGltfOutput.value || "").trim(),
   };
   try {
     window.localStorage.setItem(STUDIO_SETTINGS_KEY, JSON.stringify(settings));
@@ -692,6 +707,9 @@ function applyStoredSettings(settings) {
   }
   if (typeof settings.workflow_render_output === "string" && settings.workflow_render_output) {
     nodes.workflowRenderOutput.value = settings.workflow_render_output;
+  }
+  if (typeof settings.workflow_gltf_output === "string" && settings.workflow_gltf_output) {
+    nodes.workflowGltfOutput.value = settings.workflow_gltf_output;
   }
 }
 
@@ -1366,7 +1384,8 @@ function workflowOptionsPayload() {
     start_value: parseFloatOrFallback(nodes.workflowStartValue.value, 0),
     end_value: parseFloatOrFallback(nodes.workflowEndValue.value, 180),
     render_frame: parseIntOrFallback(nodes.workflowRenderFrame.value, 0),
-    render_output: (nodes.workflowRenderOutput.value || "").trim() || "/tmp/nova4d-workflow-frame.png",
+    render_output: (nodes.workflowRenderOutput.value || "").trim() || CINEMATIC_SMOKE_DEFAULT_RENDER_OUTPUT,
+    gltf_output: (nodes.workflowGltfOutput.value || "").trim() || CINEMATIC_SMOKE_DEFAULT_GLTF_OUTPUT,
   };
 }
 
@@ -1587,6 +1606,97 @@ function renderRun(runResponse) {
   if (!rows.length) {
     nodes.queuedCommands.innerHTML = "<li class='hint'>No commands queued.</li>";
   }
+}
+
+function classForCommandStatus(status) {
+  const normalized = normalizeCommandStatus(status);
+  if (normalized === "succeeded") {
+    return "status-ok";
+  }
+  if (normalized === "failed" || normalized === "canceled" || normalized === "blocked") {
+    return "status-error";
+  }
+  if (normalized === "queued" || normalized === "dispatched") {
+    return "status-warn";
+  }
+  return "hint";
+}
+
+function setCinematicSmokeStatus(text, className = "hint") {
+  nodes.cinematicSmokeStatus.textContent = text;
+  nodes.cinematicSmokeStatus.className = className;
+}
+
+function renderCinematicSmokeArtifacts(options = {}, commandIds = []) {
+  const renderOutput = String(options.render_output || "").trim();
+  const gltfOutput = String(options.gltf_output || "").trim();
+  const safeCommandIds = (commandIds || [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  const parts = [];
+  if (renderOutput) {
+    const href = `file://${encodeURI(renderOutput)}`;
+    parts.push(`Render: <a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(renderOutput)}</a>`);
+  }
+  if (gltfOutput) {
+    const href = `file://${encodeURI(gltfOutput)}`;
+    parts.push(`glTF: <a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(gltfOutput)}</a>`);
+  }
+  if (safeCommandIds.length) {
+    const commandLinks = safeCommandIds.map((id, index) => {
+      const href = `/nova4d/commands/${encodeURIComponent(id)}`;
+      return `<a href="${href}" target="_blank" rel="noopener">cmd ${index + 1}</a>`;
+    }).join(" ");
+    parts.push(`Commands: ${commandLinks}`);
+  }
+  nodes.cinematicSmokeArtifacts.className = "hint artifact-links";
+  nodes.cinematicSmokeArtifacts.innerHTML = parts.length
+    ? parts.join(" | ")
+    : "Artifacts appear here after run starts.";
+}
+
+function buildCinematicSmokeStages(queued, blocked) {
+  const stageRows = [];
+  (Array.isArray(queued) ? queued : []).forEach((command, index) => {
+    stageRows.push({
+      id: String(command.id || "").trim(),
+      route: String(command.route || "").trim(),
+      label: String(command.reason || command.action || command.route || `Stage ${index + 1}`).trim(),
+      status: normalizeCommandStatus(command.status || "queued"),
+      blocked_reason: "",
+    });
+  });
+  (Array.isArray(blocked) ? blocked : []).forEach((command, index) => {
+    stageRows.push({
+      id: `blocked-${index + 1}`,
+      route: String(command.route || "").trim(),
+      label: String(command.reason || command.route || `Blocked ${index + 1}`).trim(),
+      status: "blocked",
+      blocked_reason: String(command.reason || "blocked").trim(),
+    });
+  });
+  return stageRows;
+}
+
+function renderCinematicSmokeProgress(stages, snapshotById = new Map()) {
+  const rows = Array.isArray(stages) ? stages : [];
+  if (!rows.length) {
+    nodes.cinematicSmokeProgress.innerHTML =
+      "<li class='hint'>Run cinematic smoke to validate cube/cloner/material/animate/render/glTF import flow.</li>";
+    return;
+  }
+  nodes.cinematicSmokeProgress.innerHTML = rows.map((stage, index) => {
+    const snapshot = snapshotById.get(stage.id);
+    const status = normalizeCommandStatus(snapshot?.status || stage.status || "queued");
+    const statusClass = classForCommandStatus(status);
+    const label = escapeHtml(stage.label || stage.route || `Stage ${index + 1}`);
+    const route = escapeHtml(stage.route || "");
+    const commandId = escapeHtml(snapshot?.id || stage.id || "");
+    const reason = stage.blocked_reason
+      ? ` | ${escapeHtml(stage.blocked_reason)}`
+      : (snapshot?.error ? ` | ${escapeHtml(snapshot.error)}` : "");
+    return `<li><div><strong>${index + 1}. ${label}</strong></div><div class="${statusClass}">${escapeHtml(status)}${route ? ` | ${route}` : ""}${commandId ? ` | ${commandId}` : ""}${reason}</div></li>`;
+  }).join("");
 }
 
 function setRunMonitorStatus(text, className = "hint") {
@@ -1882,6 +1992,21 @@ function latestRunMonitorHistoryEntry() {
     return null;
   }
   return runMonitorHistory[0] || null;
+}
+
+function runMonitorHistoryEntryByIndex(rawIndex) {
+  const parsed = Number.parseInt(String(rawIndex || ""), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return null;
+  }
+  const index = parsed - 1;
+  if (index >= runMonitorHistory.length) {
+    return null;
+  }
+  return {
+    index: parsed,
+    entry: runMonitorHistory[index],
+  };
 }
 
 function normalizeCommandStatus(status) {
@@ -2469,6 +2594,100 @@ async function runTemplateWorkflow() {
   await runPlan();
 }
 
+async function runCinematicSmoke() {
+  if (nodes.runCinematicSmokeButton.disabled) {
+    return;
+  }
+  const token = cinematicSmokeToken + 1;
+  cinematicSmokeToken = token;
+  nodes.runCinematicSmokeButton.disabled = true;
+  const options = workflowOptionsPayload();
+  renderCinematicSmokeArtifacts(options, []);
+  setCinematicSmokeStatus("Queueing cinematic smoke workflow...", "status-warn");
+  try {
+    const response = await api("/nova4d/workflows/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflow_id: "cinematic_smoke",
+        options,
+        safety: safetyPayload(),
+        max_commands: Number(nodes.maxCommands.value || 10),
+        client_hint: "cinema4d-live",
+        requested_by: "workflow:studio-cinematic-smoke",
+      }),
+    });
+    const workflow = response.workflow || { name: "Cinematic Smoke" };
+    const queued = Array.isArray(response.queued) ? response.queued : [];
+    const blocked = Array.isArray(response.blocked_commands) ? response.blocked_commands : [];
+    const stages = buildCinematicSmokeStages(queued, blocked);
+    renderCinematicSmokeProgress(stages, new Map());
+    renderRun({
+      plan: { summary: `${workflow.name || "Cinematic Smoke"} queued.` },
+      queued,
+      blocked_commands: blocked,
+      scene_context: { enabled: false },
+    });
+    await loadRecent();
+    await loadHealth();
+    await loadSystemStatus();
+
+    const commandIds = queued
+      .map((command) => String(command.id || "").trim())
+      .filter(Boolean);
+    renderCinematicSmokeArtifacts(response.options || options, commandIds);
+    if (!commandIds.length) {
+      setCinematicSmokeStatus(
+        `${workflow.name || "Cinematic Smoke"}: no commands queued${blocked.length ? ` | blocked ${blocked.length}` : ""}.`,
+        blocked.length ? "status-error" : "status-warn"
+      );
+      return;
+    }
+
+    void maybeAutoMonitorQueued(queued, workflow.name || "Cinematic Smoke");
+    const startedAt = Date.now();
+    while (Date.now() - startedAt <= CINEMATIC_SMOKE_TIMEOUT_MS) {
+      if (token !== cinematicSmokeToken) {
+        return;
+      }
+      const snapshots = await fetchCommandSnapshots(commandIds);
+      if (token !== cinematicSmokeToken) {
+        return;
+      }
+      const snapshotById = new Map(
+        snapshots.map((snapshot) => [String(snapshot?.id || ""), snapshot])
+      );
+      renderCinematicSmokeProgress(stages, snapshotById);
+      const summary = summarizeCommandStatuses(snapshots);
+      const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+      const complete = summary.terminal === summary.total;
+      const statusClass = complete
+        ? (summary.failed > 0 ? "status-error" : "status-ok")
+        : "status-warn";
+      setCinematicSmokeStatus(
+        `${workflow.name || "Cinematic Smoke"}: ${summary.terminal}/${summary.total} complete | ok ${summary.succeeded} failed ${summary.failed} canceled ${summary.canceled} queued ${summary.queued} dispatched ${summary.dispatched} | ${elapsedSec}s`,
+        statusClass
+      );
+      if (complete) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, RUN_MONITOR_POLL_MS));
+    }
+    if (token === cinematicSmokeToken) {
+      setCinematicSmokeStatus(
+        `Cinematic smoke monitor timed out after ${Math.floor(CINEMATIC_SMOKE_TIMEOUT_MS / 1000)}s.`,
+        "status-warn"
+      );
+    }
+  } catch (err) {
+    setCinematicSmokeStatus(`Cinematic smoke run failed: ${err.message}`, "status-error");
+  } finally {
+    if (token === cinematicSmokeToken) {
+      nodes.runCinematicSmokeButton.disabled = false;
+    }
+  }
+}
+
 async function waitForCommand(commandId, timeoutMs = 25000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -2571,6 +2790,9 @@ function parseVoiceShortcut(rawTranscript) {
   if (/^run\s+template$/.test(command)) {
     return { action: "run-template", label: "Run selected template", key: "run-template", prompt: "" };
   }
+  if (/^(run\s+)?cinematic\s+smoke(?:\s+test)?$/.test(command)) {
+    return { action: "cinematic-smoke", label: "Run cinematic smoke workflow", key: "cinematic-smoke", prompt: "" };
+  }
   if (/^preview\s+template$/.test(command)) {
     return { action: "preview-template", label: "Preview selected template", key: "preview-template", prompt: "" };
   }
@@ -2597,6 +2819,28 @@ function parseVoiceShortcut(rawTranscript) {
   }
   if (/^clear(?:\s+monitor(?:\s+session)?)$/.test(command)) {
     return { action: "clear-monitor-session", label: "Clear run monitor session", key: "clear-monitor-session", prompt: "" };
+  }
+  const loadHistoryIndexMatch = command.match(/^load(?:\s+monitor)?\s+history(?:\s+session)?\s+#?(\d+)$/);
+  if (loadHistoryIndexMatch) {
+    const index = Number.parseInt(loadHistoryIndexMatch[1], 10);
+    return {
+      action: "load-history-session-index",
+      label: `Load monitor history session #${index}`,
+      key: `load-history-session-index-${index}`,
+      prompt: "",
+      index,
+    };
+  }
+  const exportHistoryIndexMatch = command.match(/^export(?:\s+monitor)?\s+history(?:\s+session)?\s+#?(\d+)$/);
+  if (exportHistoryIndexMatch) {
+    const index = Number.parseInt(exportHistoryIndexMatch[1], 10);
+    return {
+      action: "export-history-session-index",
+      label: `Export monitor history session #${index}`,
+      key: `export-history-session-index-${index}`,
+      prompt: "",
+      index,
+    };
   }
   if (/^load(?:\s+last)?\s+history(?:\s+session)?$/.test(command)) {
     return { action: "load-history-session", label: "Load latest monitor history session", key: "load-history-session", prompt: "" };
@@ -2658,7 +2902,7 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
 
     if (shortcut.action === "help") {
       nodes.voiceStatus.textContent =
-        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command show failures\", \"nova command retry failures\", \"nova command stop monitor\", \"nova command load last history\", \"nova command export last history\", \"nova command clear history\".";
+        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command run cinematic smoke\", \"nova command show failures\", \"nova command retry failures\", \"nova command stop monitor\", \"nova command load last history\", \"nova command load history 2\", \"nova command export history 3\", \"nova command clear history\".";
       return true;
     }
 
@@ -2704,6 +2948,11 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
     if (shortcut.action === "run-template") {
       await runTemplateWorkflow();
       nodes.voiceStatus.textContent = "Voice command complete: template run requested.";
+      return true;
+    }
+    if (shortcut.action === "cinematic-smoke") {
+      await runCinematicSmoke();
+      nodes.voiceStatus.textContent = "Voice command complete: cinematic smoke run requested.";
       return true;
     }
     if (shortcut.action === "preview-template") {
@@ -2767,6 +3016,18 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
       nodes.voiceStatus.textContent = "Voice command complete: latest history session loaded.";
       return true;
     }
+    if (shortcut.action === "load-history-session-index") {
+      const selected = runMonitorHistoryEntryByIndex(shortcut.index);
+      if (!selected || !selected.entry) {
+        setRunMonitorHistoryStatus(`Run monitor history #${shortcut.index} is not available.`, "status-warn");
+        nodes.voiceStatus.textContent = `Voice command finished: history #${shortcut.index} not found.`;
+        return true;
+      }
+      renderRunMonitorHistory(selected.entry.id);
+      loadRunMonitorHistoryEntry(selected.entry);
+      nodes.voiceStatus.textContent = `Voice command complete: history session #${selected.index} loaded.`;
+      return true;
+    }
     if (shortcut.action === "export-history-session") {
       const selected = latestRunMonitorHistoryEntry();
       if (!selected) {
@@ -2777,6 +3038,18 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
       renderRunMonitorHistory(selected.id);
       await exportRunMonitorHistoryEntry(selected);
       nodes.voiceStatus.textContent = "Voice command complete: latest history session export processed.";
+      return true;
+    }
+    if (shortcut.action === "export-history-session-index") {
+      const selected = runMonitorHistoryEntryByIndex(shortcut.index);
+      if (!selected || !selected.entry) {
+        setRunMonitorHistoryStatus(`Run monitor history #${shortcut.index} is not available.`, "status-warn");
+        nodes.voiceStatus.textContent = `Voice command finished: history #${shortcut.index} not found.`;
+        return true;
+      }
+      renderRunMonitorHistory(selected.entry.id);
+      await exportRunMonitorHistoryEntry(selected.entry);
+      nodes.voiceStatus.textContent = `Voice command complete: history session #${selected.index} export processed.`;
       return true;
     }
     if (shortcut.action === "clear-monitor-history") {
@@ -3064,6 +3337,7 @@ nodes.runButton.addEventListener("click", runPlan);
 nodes.loadTemplateButton.addEventListener("click", loadTemplatePrompt);
 nodes.previewTemplateButton.addEventListener("click", previewTemplateWorkflow);
 nodes.runTemplateButton.addEventListener("click", runTemplateWorkflow);
+nodes.runCinematicSmokeButton.addEventListener("click", runCinematicSmoke);
 nodes.queuePlanButton.addEventListener("click", queueLastPlan);
 nodes.providerTestButton.addEventListener("click", testProviderConnection);
 nodes.guidedCheckButton.addEventListener("click", runGuidedCheck);
@@ -3134,6 +3408,7 @@ nodes.providerProfileRememberKey.addEventListener("change", () => {
   nodes.workflowEndValue,
   nodes.workflowRenderFrame,
   nodes.workflowRenderOutput,
+  nodes.workflowGltfOutput,
   nodes.recentStatusFilter,
   nodes.recentRouteFilter,
   nodes.recentActionFilter,
@@ -3177,7 +3452,8 @@ window.addEventListener("beforeunload", () => {
   nodes.workflowStartValue.value = "0";
   nodes.workflowEndValue.value = "180";
   nodes.workflowRenderFrame.value = "0";
-  nodes.workflowRenderOutput.value = "/tmp/nova4d-workflow-frame.png";
+  nodes.workflowRenderOutput.value = CINEMATIC_SMOKE_DEFAULT_RENDER_OUTPUT;
+  nodes.workflowGltfOutput.value = CINEMATIC_SMOKE_DEFAULT_GLTF_OUTPUT;
   nodes.promptPresetSelect.value = PROMPT_PRESET_NONE;
   nodes.promptPresetName.value = "";
   nodes.recentStatusFilter.value = "";
@@ -3229,6 +3505,10 @@ window.addEventListener("beforeunload", () => {
   } else {
     setRunMonitorHistoryStatus("No run monitor history yet.", "hint");
   }
+  setCinematicSmokeStatus("Cinematic smoke test idle.", "hint");
+  nodes.cinematicSmokeProgress.innerHTML =
+    "<li class='hint'>Run cinematic smoke to validate cube/cloner/material/animate/render/glTF import flow.</li>";
+  renderCinematicSmokeArtifacts(workflowOptionsPayload(), []);
   setStreamStatus("Live stream offline.", "hint");
   nodes.systemStatusSummary.className = "hint";
   nodes.systemStatusSummary.textContent = "System status not loaded.";
