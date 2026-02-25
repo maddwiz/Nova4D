@@ -281,6 +281,7 @@ async function planOnly() {
         input,
         provider: providerPayload(),
         safety: safetyPayload(),
+        vision_loop: visionLoopPayload(),
         ...contextPayload(),
         max_commands: Number(nodes.maxCommands.value || 10),
       }),

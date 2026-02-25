@@ -1274,3 +1274,43 @@ Browser EventSource with API key query parameter:
 ```bash
 echo "new EventSource('/nova4d/stream?api_key=YOUR_KEY&client_id=nova4d-studio')"
 ```
+
+## Scene Vision
+
+### POST /nova4d/assistant/vision/evaluate
+
+Evaluate a screenshot against the original prompt and return bounded correction commands.
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/assistant/vision/evaluate" \
+  -H 'Content-Type: application/json' \
+  "${AUTH_HEADER[@]}" \
+  -d '{
+    "input": "Build a neon cube composition with dramatic framing",
+    "provider": {
+      "kind": "openai",
+      "base_url": "https://api.openai.com",
+      "model": "gpt-4o-mini",
+      "api_key": "YOUR_KEY"
+    },
+    "screenshot_path": "/tmp/nova4d-vision-iter-1.png",
+    "max_commands": 8,
+    "safety": { "mode": "balanced", "allow_dangerous": false }
+  }' | jq .
+```
+
+### Scene Vision loop in /nova4d/assistant/run
+
+`/nova4d/assistant/run` accepts `vision_loop` to auto-capture screenshot feedback and queue correction iterations:
+
+```json
+{
+  "vision_loop": {
+    "enabled": true,
+    "max_iterations": 3,
+    "max_commands": 8,
+    "frame": 0,
+    "screenshot_path": "/tmp/nova4d-vision-iter-{{iteration}}.png"
+  }
+}
+```

@@ -16,6 +16,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Includes a toggle to run templates through AI planning or deterministic workflow execution
 - Supports deterministic workflow option inputs (including glTF output) and a preview action before queueing
 - Includes one-click Cinematic Smoke run with stage-by-stage progress and artifact links
+- Supports Scene Vision loop (optional screenshot feedback + bounded correction iterations)
 - Includes cinematic-smoke triage controls to retry failed stages, export smoke report JSON, and clear smoke session state
 - Persists cinematic-smoke history (latest 30 sessions) with load/export/clear controls
 - Supports saved prompt presets for common text instructions
@@ -44,7 +45,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Supports bulk retry of failed commands and status-filtered recent view
 - Persists non-secret Studio settings in browser local storage
 - Can optionally persist provider API keys in local browser profile storage
-- UI responsibilities are split into browser modules under `server/ui/modules/` (`studio_state`, `studio_settings`, `bridge_status`, `provider_management`, `workflow_engine`, `execution_engine`, `cinematic_smoke`, `run_monitor`, `command_browser`, `voice_control`, `studio_bootstrap`); `server/ui/app.js` remains a compatibility stub
+- UI responsibilities are split into browser modules under `server/ui/modules/` (`studio_state`, `studio_settings`, `bridge_status`, `provider_management`, `vision_loop`, `workflow_engine`, `execution_engine`, `cinematic_smoke`, `run_monitor`, `command_browser`, `voice_control`, `studio_bootstrap`); `server/ui/app.js` remains a compatibility stub
 
 ## Notes
 

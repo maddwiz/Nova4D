@@ -1,16 +1,72 @@
 Nova4D End User License Agreement (EULA)
-Version 1.0.1 - February 2026
+Version 1.0.1 - February 25, 2026
 
-Copyright (c) 2026 Nova4D.
-All rights reserved.
+IMPORTANT: READ THIS AGREEMENT CAREFULLY.
+By installing, copying, accessing, or using Nova4D (the "Software"), you agree to be bound by this EULA.
+If you do not agree, do not install or use the Software.
 
-You are granted a non-exclusive, non-transferable, revocable license to use Nova4D for personal or commercial production workflows under your purchased tier.
+1. Parties
+This EULA is between the Software publisher/operator ("Licensor") and the individual or entity using the Software ("Licensee").
 
-You may not:
-- redistribute, resell, sublicense, or share Nova4D source or packaged files;
-- remove copyright/licensing notices;
-- reverse engineer the software for competitive cloning or derivative resale.
+2. License Grant
+Subject to this EULA and any purchased plan terms, Licensor grants Licensee a limited, non-exclusive, non-transferable,
+revocable license to install and use the Software for Licensee's internal personal or commercial production workflows.
 
-Nova4D is provided "as is" without warranty of any kind. In no event shall the authors be liable for direct, indirect, incidental, or consequential damages resulting from use of the software.
+3. Ownership
+The Software is licensed, not sold. All rights, title, and interest in and to the Software, including all intellectual property rights,
+remain with Licensor and its licensors.
 
-This agreement is governed by applicable local law in the operator's jurisdiction unless superseded by a signed commercial agreement.
+4. Restrictions
+Licensee must not, except where prohibited by applicable law:
+- redistribute, sublicense, rent, lease, sell, or share the Software or any license key;
+- make the Software available to third parties as a hosted service or bureau, unless explicitly licensed for that use;
+- remove or alter copyright, trademark, attribution, or proprietary notices;
+- reverse engineer, decompile, disassemble, or otherwise attempt to derive source or non-public internals;
+- use the Software to build or market a competing cloned product based substantially on Software internals.
+
+5. Third-Party Requirements
+Use of the Software requires third-party products and services, including an active Cinema 4D 2025+ or 2026 subscription.
+Licensee is solely responsible for obtaining and maintaining required third-party rights, subscriptions, APIs, and credentials.
+
+6. Data, Security, and AI Providers
+The Software may send prompts, metadata, and configuration to selected AI providers and local/network services configured by Licensee.
+Licensee is solely responsible for provider selection, credential handling, model usage, policy compliance, and output review.
+
+7. Updates and Changes
+Licensor may provide updates, patches, or upgrades at its discretion. Some updates may modify or remove functionality.
+Continued use after updates constitutes acceptance of the updated Software and terms.
+
+8. Term and Termination
+This EULA remains effective until terminated.
+Licensor may terminate this license immediately if Licensee breaches this EULA.
+Upon termination, Licensee must cease use and delete all copies under its control.
+
+9. Disclaimer of Warranties
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, OR THAT OPERATION WILL BE
+UNINTERRUPTED, SECURE, OR ERROR-FREE.
+
+10. Limitation of Liability
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, LICENSOR AND ITS AFFILIATES SHALL NOT BE LIABLE FOR ANY INDIRECT,
+INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA,
+GOODWILL, OR BUSINESS INTERRUPTION, ARISING FROM OR RELATED TO THE SOFTWARE.
+IN NO EVENT SHALL LICENSOR'S TOTAL LIABILITY EXCEED THE AMOUNT PAID BY LICENSEE FOR THE SOFTWARE IN THE
+TWELVE (12) MONTHS PRECEDING THE CLAIM.
+
+11. Indemnity
+Licensee agrees to defend, indemnify, and hold harmless Licensor from third-party claims arising out of Licensee's misuse of the
+Software, violation of law, violation of third-party rights, or breach of this EULA.
+
+12. Compliance
+Licensee agrees to comply with all applicable laws, regulations, and export/import controls.
+
+13. Governing Law
+This EULA is governed by the laws applicable in Licensor's principal operating jurisdiction, excluding conflict-of-law rules,
+unless superseded by a signed commercial agreement between Licensor and Licensee.
+
+14. Severability and Entire Agreement
+If any provision is held unenforceable, the remaining provisions remain in full force.
+This EULA constitutes the entire agreement regarding the Software and supersedes prior or contemporaneous understandings on this subject.
+
+15. Contact
+For licensing/support inquiries, use the support contact listed in the official Nova4D distribution channel.

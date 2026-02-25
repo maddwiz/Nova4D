@@ -39,6 +39,10 @@ function saveStudioSettings() {
     selected_template: nodes.templateSelect.value || "none",
     deterministic_workflow: Boolean(nodes.deterministicWorkflow.checked),
     auto_monitor_runs: Boolean(nodes.autoMonitorRuns.checked),
+    vision_loop_enabled: Boolean(nodes.visionLoopEnabled.checked),
+    vision_loop_max_iterations: String(nodes.visionLoopMaxIterations.value || "2"),
+    vision_loop_frame: String(nodes.visionLoopFrame.value || "0"),
+    vision_loop_screenshot_path: (nodes.visionLoopScreenshotPath.value || "").trim(),
     selected_prompt_preset: nodes.promptPresetSelect.value || PROMPT_PRESET_NONE,
     prompt_preset_name: (nodes.promptPresetName.value || "").trim(),
     recent_status_filter: nodes.recentStatusFilter.value || "",
@@ -103,6 +107,18 @@ function applyStoredSettings(settings) {
   }
   if (typeof settings.auto_monitor_runs === "boolean") {
     nodes.autoMonitorRuns.checked = settings.auto_monitor_runs;
+  }
+  if (typeof settings.vision_loop_enabled === "boolean") {
+    nodes.visionLoopEnabled.checked = settings.vision_loop_enabled;
+  }
+  if (typeof settings.vision_loop_max_iterations === "string" && settings.vision_loop_max_iterations) {
+    nodes.visionLoopMaxIterations.value = settings.vision_loop_max_iterations;
+  }
+  if (typeof settings.vision_loop_frame === "string" && settings.vision_loop_frame) {
+    nodes.visionLoopFrame.value = settings.vision_loop_frame;
+  }
+  if (typeof settings.vision_loop_screenshot_path === "string" && settings.vision_loop_screenshot_path) {
+    nodes.visionLoopScreenshotPath.value = settings.vision_loop_screenshot_path;
   }
   if (typeof settings.selected_prompt_preset === "string") {
     nodes.promptPresetSelect.value = settings.selected_prompt_preset;

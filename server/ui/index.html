@@ -244,6 +244,29 @@
         <input id="autoMonitorRuns" type="checkbox" checked />
         <span>Auto monitor queued command completion</span>
       </label>
+      <h3>Scene Vision (Beta)</h3>
+      <label class="toggle-row">
+        <input id="visionLoopEnabled" type="checkbox" />
+        <span>Enable screenshot feedback loop after run</span>
+      </label>
+      <div class="grid workflow-grid">
+        <label>
+          Max Iterations
+          <input id="visionLoopMaxIterations" type="number" min="1" max="5" value="2" />
+        </label>
+        <label>
+          Screenshot Frame
+          <input id="visionLoopFrame" type="number" value="0" />
+        </label>
+        <label>
+          Screenshot Path
+          <input id="visionLoopScreenshotPath" type="text" value="/tmp/nova4d-vision-iter-{{iteration}}.png" autocomplete="off" />
+        </label>
+      </div>
+      <div id="visionLoopStatus" class="hint">Scene Vision disabled.</div>
+      <ol id="visionLoopComparisons" class="plan-list">
+        <li class="hint">Enable Scene Vision to get iterative screenshot feedback and correction passes.</li>
+      </ol>
       <div id="runMonitorStatus" class="hint">Run monitor idle.</div>
       <div class="inline-actions wrap">
         <button id="stopRunMonitorButton" class="secondary" disabled>Stop Monitor</button>
@@ -333,6 +356,7 @@
   <script src="/nova4d/studio/assets/modules/studio_settings.js"></script>
   <script src="/nova4d/studio/assets/modules/bridge_status.js"></script>
   <script src="/nova4d/studio/assets/modules/provider_management.js"></script>
+  <script src="/nova4d/studio/assets/modules/vision_loop.js"></script>
   <script src="/nova4d/studio/assets/modules/workflow_engine.js"></script>
   <script src="/nova4d/studio/assets/modules/execution_engine.js"></script>
   <script src="/nova4d/studio/assets/modules/cinematic_smoke.js"></script>

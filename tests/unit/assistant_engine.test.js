@@ -2,12 +2,16 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const {
   normalizeProvider,
   fallbackPlanFromText,
   sanitizePlan,
   planCommands,
+  visionFeedbackPlan,
 } = require("../../server/assistant_engine");
 
 test("normalizeProvider falls back to builtin for unknown kind", () => {
@@ -148,6 +152,72 @@ test("planCommands falls back when provider response has no valid routes", async
     assert.equal(result.mode, "openai-fallback");
     assert.equal(result.commands.length, 1);
     assert.equal(result.commands[0].route, "/nova4d/test/ping");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("visionFeedbackPlan returns sanitized correction commands for multimodal provider", async () => {
+  const originalFetch = global.fetch;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nova4d-vision-test-"));
+  const screenshotPath = path.join(tmpDir, "vision.png");
+  fs.writeFileSync(screenshotPath, Buffer.from("fake-image-bytes"));
+
+  global.fetch = async () => ({
+    ok: true,
+    text: async () => JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              summary: "Need slight correction",
+              match_score: 72,
+              needs_correction: true,
+              analysis: "Object is too low in frame.",
+              commands: [
+                {
+                  route: "/nova4d/scene/set-transform",
+                  payload: {
+                    target_name: "AICube",
+                    position: [0, 160, 0],
+                  },
+                  reason: "Raise object.",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    }),
+  });
+
+  try {
+    const commandRoutes = [
+      { path: "/nova4d/scene/set-transform", category: "scene", action: "set-transform" },
+    ];
+    const routeMap = new Map(commandRoutes.map((route) => [route.path, route]));
+    const result = await visionFeedbackPlan({
+      input: "Create a floating cube.",
+      provider: {
+        kind: "openai",
+        base_url: "https://api.openai.com",
+        model: "gpt-4o-mini",
+        api_key: "",
+        temperature: 0.2,
+        max_tokens: 800,
+      },
+      commandRoutes,
+      routeMap,
+      maxCommands: 3,
+      screenshotPath,
+      iteration: 1,
+      previousSummary: "",
+    });
+
+    assert.equal(result.needs_correction, true);
+    assert.equal(result.match_score, 72);
+    assert.equal(result.commands.length, 1);
+    assert.equal(result.commands[0].route, "/nova4d/scene/set-transform");
   } finally {
     global.fetch = originalFetch;
   }

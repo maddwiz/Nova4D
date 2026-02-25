@@ -43,6 +43,14 @@ nodes.autoMonitorRuns.addEventListener("change", () => {
   }
   stopRunMonitor("Run monitor disabled.");
 });
+nodes.visionLoopEnabled.addEventListener("change", () => {
+  saveStudioSettings();
+  if (nodes.visionLoopEnabled.checked) {
+    setVisionLoopStatus("Scene Vision enabled. Next run will include screenshot feedback loop.", "hint");
+  } else {
+    setVisionLoopStatus("Scene Vision disabled.", "hint");
+  }
+});
 nodes.stopRunMonitorButton.addEventListener("click", () => {
   if (!runMonitorActive) {
     setRunMonitorStatus("Run monitor is not active.", "hint");
@@ -266,6 +274,10 @@ nodes.providerProfileRememberKey.addEventListener("change", () => {
   nodes.refreshSceneContext,
   nodes.liveStreamEnabled,
   nodes.autoMonitorRuns,
+  nodes.visionLoopEnabled,
+  nodes.visionLoopMaxIterations,
+  nodes.visionLoopFrame,
+  nodes.visionLoopScreenshotPath,
   nodes.templateSelect,
   nodes.deterministicWorkflow,
   nodes.promptPresetSelect,
@@ -312,6 +324,10 @@ window.addEventListener("beforeunload", () => {
   nodes.refreshSceneContext.checked = true;
   nodes.liveStreamEnabled.checked = true;
   nodes.autoMonitorRuns.checked = true;
+  nodes.visionLoopEnabled.checked = false;
+  nodes.visionLoopMaxIterations.value = "2";
+  nodes.visionLoopFrame.value = "0";
+  nodes.visionLoopScreenshotPath.value = "/tmp/nova4d-vision-iter-{{iteration}}.png";
   populateTemplateSelect();
   nodes.templateSelect.value = "none";
   nodes.deterministicWorkflow.checked = true;
@@ -351,6 +367,11 @@ window.addEventListener("beforeunload", () => {
   renderRunMonitorHistory();
   renderCinematicSmokeHistory();
   applyStoredSettings(loadStoredSettings());
+  if (nodes.visionLoopEnabled.checked) {
+    setVisionLoopStatus("Scene Vision enabled. Run a prompt to capture comparisons.", "hint");
+  } else {
+    setVisionLoopStatus("Scene Vision disabled.", "hint");
+  }
   if (nodes.autoMonitorRuns.checked) {
     setRunMonitorStatus("Run monitor idle.", "hint");
   } else {

@@ -76,3 +76,30 @@ test("retryFailed can include canceled commands", () => {
     [failed.id, canceled.id].sort()
   );
 });
+
+test("command store sqlite mode persists commands when node:sqlite is available", () => {
+  let sqliteAvailable = true;
+  try {
+    require("node:sqlite");
+  } catch (_err) {
+    sqliteAvailable = false;
+  }
+  if (!sqliteAvailable) {
+    return;
+  }
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nova4d-store-sqlite-test-"));
+  const sqlitePath = path.join(dir, "command-store.sqlite");
+
+  const storeA = new CommandStore({ persistDriver: "sqlite", sqlitePath, persistDebounceMs: 20 });
+  const command = storeA.enqueue({ route: "/nova4d/test/ping", category: "test", action: "sqlite-ping", payload: { message: "sqlite" } });
+  storeA.result({ command_id: command.id, status: "ok", ok: true, result: { message: "done" } });
+  storeA.flush();
+
+  const storeB = new CommandStore({ persistDriver: "sqlite", sqlitePath });
+  const loaded = storeB.get(command.id);
+  assert.ok(loaded);
+  assert.equal(loaded.status, "succeeded");
+  assert.deepEqual(loaded.result, { message: "done" });
+  assert.equal(storeB.summary().persistence.driver, "sqlite");
+});

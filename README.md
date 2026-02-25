@@ -83,6 +83,7 @@ From the UI you can:
 - Persist cinematic-smoke history sessions (latest 30) with load/export/clear controls
 - Save/load/delete reusable prompt presets for repeatable requests
 - Use Smart Run to auto-validate provider config before execution
+- Optionally enable Scene Vision loop (iterative screenshot feedback + auto-correction passes after run)
 - Auto monitor queued command completion with live success/fail progress
 - Triage last monitored run with one-click failure inspection, retry, export, and session reset
 - Persist run monitor history (latest 30 sessions), then reload/export/clear past sessions
@@ -133,7 +134,9 @@ Detailed guide: `docs/STUDIO_UI.md`
 - `NOVA4D_BLENDER_SCALE`
 - `NOVA4D_RATE_LIMIT_WINDOW_MS`
 - `NOVA4D_RATE_LIMIT_MAX`
+- `NOVA4D_STORE_DRIVER` (`json` or `sqlite`)
 - `NOVA4D_STORE_PATH`
+- `NOVA4D_STORE_SQLITE_PATH`
 - `NOVA4D_C4D_PATH`
 - `NOVA4D_HEADLESS_TIMEOUT_SEC`
 

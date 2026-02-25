@@ -4,17 +4,40 @@ const fs = require("fs");
 const path = require("path");
 const { randomUUID } = require("crypto");
 
+let sqliteLoadAttempted = false;
+let DatabaseSyncCtor = null;
+
+function resolveDatabaseSync() {
+  if (!sqliteLoadAttempted) {
+    sqliteLoadAttempted = true;
+    try {
+      ({ DatabaseSync: DatabaseSyncCtor } = require("node:sqlite"));
+    } catch (_err) {
+      DatabaseSyncCtor = null;
+    }
+  }
+  return DatabaseSyncCtor;
+}
+
 class CommandStore {
   constructor(options = {}) {
     this.leaseMs = Number.isFinite(options.leaseMs) ? options.leaseMs : 120000;
     this.maxRetention = Number.isFinite(options.maxRetention) ? options.maxRetention : 10000;
+    this.persistDriver = String(options.persistDriver || "json").trim().toLowerCase() === "sqlite"
+      ? "sqlite"
+      : "json";
     this.persistPath = typeof options.persistPath === "string" && options.persistPath.trim()
       ? options.persistPath.trim()
+      : "";
+    this.sqlitePath = typeof options.sqlitePath === "string" && options.sqlitePath.trim()
+      ? options.sqlitePath.trim()
       : "";
     this.persistDebounceMs = Number.isFinite(options.persistDebounceMs)
       ? Math.max(20, Math.min(5000, Math.floor(options.persistDebounceMs)))
       : 200;
     this.persistTimer = null;
+    this.sqliteDb = null;
+    this.sqliteEnabled = false;
     this.commands = new Map();
     this.pending = [];
     this.sseClients = new Map();
@@ -26,6 +49,7 @@ class CommandStore {
       canceled_total: 0,
       requeued_total: 0,
     };
+    this._initPersistence();
     this._loadFromDisk();
   }
 
@@ -306,6 +330,10 @@ class CommandStore {
       counters: this.stats,
       sse_clients: this.sseClients.size,
       lease_ms: this.leaseMs,
+      persistence: {
+        driver: this.persistDriver,
+        path: this.persistDriver === "sqlite" ? this.sqlitePath : this.persistPath,
+      },
     };
   }
 
@@ -341,7 +369,7 @@ class CommandStore {
   }
 
   _markDirty() {
-    if (!this.persistPath) {
+    if (!this._isPersistenceConfigured()) {
       return;
     }
     if (this.persistTimer) {
@@ -361,6 +389,7 @@ class CommandStore {
       .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
     return {
       version: 1,
+      persist_driver: this.persistDriver,
       lease_ms: this.leaseMs,
       max_retention: this.maxRetention,
       stats: Object.assign({}, this.stats),
@@ -418,6 +447,10 @@ class CommandStore {
   }
 
   _loadFromDisk() {
+    if (this.persistDriver === "sqlite") {
+      this._loadFromSqlite();
+      return;
+    }
     if (!this.persistPath) {
       return;
     }
@@ -438,6 +471,10 @@ class CommandStore {
   }
 
   _persistToDisk() {
+    if (this.persistDriver === "sqlite") {
+      this._persistToSqlite();
+      return;
+    }
     if (!this.persistPath) {
       return;
     }
@@ -449,6 +486,96 @@ class CommandStore {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn(`[Nova4D] Failed to persist command store cache: ${err.message}`);
+    }
+  }
+
+  _initPersistence() {
+    if (this.persistDriver !== "sqlite") {
+      return;
+    }
+    const DatabaseSync = resolveDatabaseSync();
+    if (!DatabaseSync) {
+      // eslint-disable-next-line no-console
+      console.warn("[Nova4D] node:sqlite not available; falling back to json persistence.");
+      this.persistDriver = "json";
+      return;
+    }
+
+    const resolvedSqlitePath = this.sqlitePath
+      || (this.persistPath
+        ? this.persistPath.replace(/\.json$/i, ".sqlite")
+        : path.join(process.cwd(), "nova4d-command-store.sqlite"));
+    this.sqlitePath = resolvedSqlitePath;
+
+    try {
+      fs.mkdirSync(path.dirname(this.sqlitePath), { recursive: true });
+      const db = new DatabaseSync(this.sqlitePath);
+      db.exec("PRAGMA journal_mode = WAL;");
+      db.exec("PRAGMA synchronous = NORMAL;");
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS command_store_state (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          state_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      this.sqliteDb = db;
+      this.sqliteEnabled = true;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[Nova4D] Failed to initialize sqlite command store: ${err.message}`);
+      this.sqliteDb = null;
+      this.sqliteEnabled = false;
+      this.persistDriver = "json";
+    }
+  }
+
+  _isPersistenceConfigured() {
+    if (this.persistDriver === "sqlite") {
+      return this.sqliteEnabled && Boolean(this.sqliteDb);
+    }
+    return Boolean(this.persistPath);
+  }
+
+  _loadFromSqlite() {
+    if (!this.sqliteEnabled || !this.sqliteDb) {
+      return;
+    }
+    try {
+      const row = this.sqliteDb
+        .prepare("SELECT state_json FROM command_store_state WHERE id = 1")
+        .get();
+      const raw = row && typeof row.state_json === "string" ? row.state_json.trim() : "";
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      this._hydrateFromState(parsed);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[Nova4D] Failed to load sqlite command store cache: ${err.message}`);
+    }
+  }
+
+  _persistToSqlite() {
+    if (!this.sqliteEnabled || !this.sqliteDb) {
+      return;
+    }
+    try {
+      const stateJson = JSON.stringify(this._serializeState());
+      const updatedAt = new Date().toISOString();
+      this.sqliteDb
+        .prepare(`
+          INSERT INTO command_store_state (id, state_json, updated_at)
+          VALUES (1, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            state_json = excluded.state_json,
+            updated_at = excluded.updated_at
+        `)
+        .run(stateJson, updatedAt);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[Nova4D] Failed to persist sqlite command store cache: ${err.message}`);
     }
   }
 

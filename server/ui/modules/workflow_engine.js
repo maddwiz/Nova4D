@@ -97,6 +97,9 @@ function renderRun(runResponse) {
   if (!rows.length) {
     nodes.queuedCommands.innerHTML = "<li class='hint'>No commands queued.</li>";
   }
+  if (typeof renderVisionLoop === "function") {
+    renderVisionLoop(runResponse);
+  }
 }
 
 if (typeof module !== "undefined" && module.exports) {

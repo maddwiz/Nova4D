@@ -1089,6 +1089,13 @@ def _save_bitmap(bitmap, output_path):
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     if not bitmap.Save(output_path, bitmap_filter):
         raise RuntimeError("failed to save rendered bitmap")
+    if not os.path.isfile(output_path):
+        raise RuntimeError(f"render output missing after save: {output_path}")
+    try:
+        if os.path.getsize(output_path) <= 0:
+            raise RuntimeError(f"render output is empty: {output_path}")
+    except OSError as exc:
+        raise RuntimeError(f"render output check failed: {exc}")
 
 
 def _render_single_frame(doc, frame, output_path):

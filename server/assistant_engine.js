@@ -1,5 +1,8 @@
 "use strict";
 
+const fs = require("fs");
+const path = require("path");
+
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com";
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api";
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
@@ -319,6 +322,66 @@ function buildPlannerPrompt(commandRoutes, maxCommands, sceneContext = null) {
   return system;
 }
 
+function imageMediaType(filePath) {
+  const ext = path.extname(String(filePath || "")).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") {
+    return "image/jpeg";
+  }
+  if (ext === ".webp") {
+    return "image/webp";
+  }
+  return "image/png";
+}
+
+function readVisionImage(filePath) {
+  const resolved = String(filePath || "").trim();
+  if (!resolved) {
+    throw new Error("vision_error:image_path_required");
+  }
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`vision_error:image_missing:${resolved}`);
+  }
+  const bytes = fs.readFileSync(resolved);
+  if (!bytes || bytes.length === 0) {
+    throw new Error(`vision_error:image_empty:${resolved}`);
+  }
+  return {
+    path: resolved,
+    media_type: imageMediaType(resolved),
+    base64: bytes.toString("base64"),
+  };
+}
+
+function buildVisionPrompt(commandRoutes, maxCommands, input, iteration, previousSummary = "") {
+  const routeList = commandRoutes
+    .map((route) => `${route.path} | ${route.category} | ${route.action}`)
+    .join("\n");
+  const previous = safeString(previousSummary || "").trim();
+
+  const system = [
+    "You are Nova4D Scene Vision.",
+    "You evaluate a Cinema 4D screenshot against user intent and return correction commands when needed.",
+    "Return only valid JSON.",
+    "Output schema:",
+    "{\"summary\":\"...\",\"match_score\":0,\"needs_correction\":true,\"analysis\":\"...\",\"commands\":[{\"route\":\"/nova4d/...\",\"payload\":{},\"reason\":\"...\"}]}",
+    `Rules: max ${maxCommands} correction commands.`,
+    "Only use allowed routes listed below.",
+    "Use deterministic names and concise payloads.",
+    "If scene already matches intent, return needs_correction=false and commands=[].",
+    "Allowed routes:",
+    routeList,
+  ].join("\n");
+
+  const user = [
+    `Original intent: ${safeString(input).slice(0, 12000)}`,
+    `Iteration: ${iteration}`,
+    previous ? `Previous vision summary: ${previous.slice(0, 4000)}` : "Previous vision summary: none",
+    "Analyze the screenshot and propose only high-impact corrections.",
+  ].join("\n");
+
+  return { system, user };
+}
+
 async function callOpenAICompatible(provider, systemPrompt, userPrompt) {
   const base = provider.base_url.replace(/\/$/, "");
   const url = `${base}/v1/chat/completions`;
@@ -399,6 +462,192 @@ async function callAnthropic(provider, systemPrompt, userPrompt) {
     raw: bodyText,
     text: contentText,
     json: extractJsonObject(contentText),
+  };
+}
+
+function normalizeOpenAIContent(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((row) => {
+        if (!row || typeof row !== "object") {
+          return "";
+        }
+        if (typeof row.text === "string") {
+          return row.text;
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return JSON.stringify(content || "");
+}
+
+async function callOpenAICompatibleVision(provider, prompt, image) {
+  const base = provider.base_url.replace(/\/$/, "");
+  const url = `${base}/v1/chat/completions`;
+  const headers = {
+    "Content-Type": "application/json",
+  };
+  if (provider.api_key) {
+    headers.Authorization = `Bearer ${provider.api_key}`;
+  }
+  if (provider.kind === "openrouter") {
+    headers["HTTP-Referer"] = "https://localhost/nova4d";
+    headers["X-Title"] = "Nova4D Studio";
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: provider.model,
+      temperature: provider.temperature,
+      max_tokens: provider.max_tokens,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: prompt.system },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt.user },
+            {
+              type: "image_url",
+              image_url: { url: `data:${image.media_type};base64,${image.base64}` },
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  const bodyText = await response.text();
+  if (!response.ok) {
+    throw new Error(`provider_error:${response.status} ${bodyText.slice(0, 400)}`);
+  }
+
+  const parsed = extractJsonObject(bodyText) || {};
+  const content = parsed.choices?.[0]?.message?.content;
+  const contentText = normalizeOpenAIContent(content);
+  return {
+    raw: bodyText,
+    text: contentText,
+    json: extractJsonObject(contentText),
+  };
+}
+
+async function callAnthropicVision(provider, prompt, image) {
+  const base = provider.base_url.replace(/\/$/, "");
+  const url = `${base}/v1/messages`;
+  const headers = {
+    "Content-Type": "application/json",
+    "anthropic-version": "2023-06-01",
+  };
+  if (provider.api_key) {
+    headers["x-api-key"] = provider.api_key;
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: provider.model,
+      max_tokens: provider.max_tokens,
+      temperature: provider.temperature,
+      system: prompt.system,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: prompt.user },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: image.media_type,
+              data: image.base64,
+            },
+          },
+        ],
+      }],
+    }),
+  });
+
+  const bodyText = await response.text();
+  if (!response.ok) {
+    throw new Error(`provider_error:${response.status} ${bodyText.slice(0, 400)}`);
+  }
+
+  const parsed = extractJsonObject(bodyText) || {};
+  const content = Array.isArray(parsed.content) ? parsed.content : [];
+  const textChunks = content
+    .filter((chunk) => chunk && chunk.type === "text")
+    .map((chunk) => safeString(chunk.text || ""))
+    .filter(Boolean);
+  const contentText = textChunks.join("\n");
+  return {
+    raw: bodyText,
+    text: contentText,
+    json: extractJsonObject(contentText),
+  };
+}
+
+async function visionFeedbackPlan({
+  input,
+  provider,
+  commandRoutes,
+  routeMap,
+  maxCommands,
+  screenshotPath,
+  iteration = 1,
+  previousSummary = "",
+}) {
+  if (!provider || provider.kind === "builtin") {
+    return {
+      mode: "builtin-vision-disabled",
+      summary: "Scene Vision requires an external multimodal provider.",
+      analysis: "Scene Vision skipped for builtin provider.",
+      match_score: null,
+      needs_correction: false,
+      commands: [],
+      raw_response: null,
+      screenshot_path: screenshotPath,
+    };
+  }
+
+  const image = readVisionImage(screenshotPath);
+  const prompt = buildVisionPrompt(commandRoutes, maxCommands, input, iteration, previousSummary);
+
+  let providerOutput;
+  if (provider.kind === "anthropic") {
+    providerOutput = await callAnthropicVision(provider, prompt, image);
+  } else {
+    providerOutput = await callOpenAICompatibleVision(provider, prompt, image);
+  }
+
+  const parsedJson = providerOutput.json || extractJsonObject(providerOutput.text || "") || {};
+  const sanitized = sanitizePlan(parsedJson, routeMap, maxCommands);
+  const matchScore = clampInt(
+    parsedJson.match_score ?? parsedJson.matchScore ?? parsedJson.match ?? -1,
+    -1,
+    -1,
+    100
+  );
+  const needsCorrection = parsedJson.needs_correction === true
+    || (Array.isArray(parsedJson.commands) && parsedJson.commands.length > 0);
+  const analysis = safeString(parsedJson.analysis || parsedJson.feedback || "").slice(0, 4000);
+
+  return {
+    mode: `${provider.kind}-vision`,
+    summary: sanitized.summary || "Vision feedback generated.",
+    analysis,
+    match_score: matchScore >= 0 ? matchScore : null,
+    needs_correction: needsCorrection && sanitized.commands.length > 0,
+    commands: sanitized.commands,
+    raw_response: providerOutput.raw,
+    screenshot_path: image.path,
   };
 }
 
@@ -542,6 +791,7 @@ module.exports = {
   fallbackPlanFromText,
   sanitizePlan,
   planCommands,
+  visionFeedbackPlan,
   testProviderConnection,
   queuePlannedCommands,
 };
