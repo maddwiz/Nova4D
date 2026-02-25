@@ -385,3 +385,10 @@ async function ensureLatestRunMonitorSnapshots() {
   }
   return lastRunMonitorSnapshots;
 }
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    normalizeCommandStatus,
+    summarizeCommandStatuses,
+  };
+}

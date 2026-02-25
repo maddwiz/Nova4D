@@ -98,3 +98,10 @@ function renderRun(runResponse) {
     nodes.queuedCommands.innerHTML = "<li class='hint'>No commands queued.</li>";
   }
 }
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    parseIntOrFallback,
+    parseFloatOrFallback,
+  };
+}
