@@ -11,6 +11,9 @@ const { CommandStore } = require("./command_store");
 const { createRateLimitMiddleware } = require("./rate_limiter");
 const { commandRoutes } = require("./command_routes");
 const { createWorkflowPlanner } = require("./workflow_planner");
+const { parseInteger, parseFloatSafe, parseBoolean, inferClientId, toPublicProvider } = require("./runtime_utils");
+const { createCommandQueueService } = require("./command_queue_service");
+const { createHeadlessJobsStore } = require("./headless_jobs_store");
 const { createSceneSnapshotService } = require("./scene_snapshot_service");
 const { createPreflightService } = require("./preflight_checks");
 const { registerCommandQueueRoutes } = require("./routes/command_queue_routes");
@@ -96,26 +99,6 @@ app.get("/nova4d/studio", (_req, res) => {
   res.sendFile(path.join(UI_DIR, "index.html"));
 });
 
-function parseInteger(value, fallback, min, max) {
-  const parsed = parseInt(String(value ?? fallback), 10);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.max(min, Math.min(max, parsed));
-}
-
-function parseFloatSafe(value, fallback) {
-  const parsed = Number.parseFloat(String(value));
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return parsed;
-}
-
-function inferClientId(req) {
-  return req.query.client_id || req.get("X-Client-Id") || "cinema4d-live";
-}
-
 const requireRateLimit = createRateLimitMiddleware({
   windowMs: RATE_LIMIT_WINDOW_MS,
   max: RATE_LIMIT_MAX,
@@ -135,138 +118,29 @@ function requireApiKey(req, res, next) {
 
 app.use(requireRateLimit);
 
-function queueCommand(req, res, spec, extraPayload = {}) {
-  if (!spec) {
-    return res.status(404).json({ status: "error", error: "route spec not found" });
-  }
-  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
-  const priority = parseInteger(body.priority, 0, -100, 100);
-  const metadata = Object.assign({}, body.metadata || {}, {
-    requested_by: req.get("X-Request-By") || "api",
-    client_hint: body.client_hint || null,
-  });
-
-  const payload = Object.assign({}, body, extraPayload);
-  const validation = validateQueuedPayload(spec.path, payload);
-  if (!validation.ok) {
-    return res.status(400).json({
-      status: "error",
-      error: "payload validation failed",
-      route: spec.path,
-      details: validation.errors,
-    });
-  }
-  const command = store.enqueue({
-    route: spec.path,
-    category: spec.category,
-    action: spec.action,
-    payload,
-    priority,
-    metadata,
-  });
-
-  return res.json({
-    status: "queued",
-    command_id: command.id,
-    category: command.category,
-    action: command.action,
-    route: command.route,
-    queued_at: command.created_at,
-  });
-}
-
 const commandRouteByPath = new Map(commandRoutes.map((spec) => [spec.path, spec]));
 const routeCatalog = buildCatalog(commandRoutes);
 
-function validateQueuedPayload(routePath, payload) {
-  return validatePayload(routePath, payload || {});
-}
+const commandQueueService = createCommandQueueService({
+  store,
+  validatePayload,
+  filterCommandsBySafety,
+  normalizeSafetyPolicy,
+  getRisk,
+  parseInteger,
+});
 
-const headlessJobs = new Map();
-
-function createJobRecord(command, args, logPath) {
-  const id = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-  const now = new Date().toISOString();
-  return {
-    id,
-    status: "running",
-    command,
-    args,
-    log_path: logPath,
-    created_at: now,
-    updated_at: now,
-    started_at: now,
-    completed_at: null,
-    exit_code: null,
-    signal: null,
-    pid: null,
-    timeout_sec: null,
-  };
-}
-
-function finalizeJob(job, status, exitCode, signal) {
-  const now = new Date().toISOString();
-  job.status = status;
-  job.exit_code = exitCode;
-  job.signal = signal || null;
-  job.completed_at = now;
-  job.updated_at = now;
-}
-
-function toPublicProvider(provider) {
-  return {
-    kind: provider.kind,
-    base_url: provider.base_url,
-    model: provider.model,
-    temperature: provider.temperature,
-    max_tokens: provider.max_tokens,
-    api_key_configured: Boolean(provider.api_key),
-  };
-}
-
-function applyCommandGuards(commands, safetyInput) {
-  const rejectedByValidation = [];
-  const valid = [];
-
-  commands.forEach((command) => {
-    const validation = validateQueuedPayload(command.route, command.payload);
-    if (!validation.ok) {
-      rejectedByValidation.push({
-        route: command.route,
-        reason: "payload validation failed",
-        details: validation.errors,
-        payload: command.payload || {},
-      });
-      return;
-    }
-    valid.push(command);
-  });
-
-  const safetyResult = filterCommandsBySafety(valid, getRisk, safetyInput);
-
-  return {
-    policy: safetyResult.policy || normalizeSafetyPolicy(safetyInput || {}),
-    allowed: safetyResult.allowed || [],
-    blocked: (safetyResult.blocked || []).concat(rejectedByValidation),
-  };
-}
+const {
+  validateQueuedPayload,
+  queueCommand,
+  applyCommandGuards,
+} = commandQueueService;
 
 const workflowPlanner = createWorkflowPlanner({ applyCommandGuards });
 const { WORKFLOW_SPECS, workflowDefaults, buildWorkflowPlan } = workflowPlanner;
 
-function parseBoolean(value, fallback = false) {
-  if (value === undefined || value === null || value === "") {
-    return fallback;
-  }
-  const normalized = String(value).trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) {
-    return true;
-  }
-  if (["0", "false", "no", "off"].includes(normalized)) {
-    return false;
-  }
-  return fallback;
-}
+const headlessJobsStore = createHeadlessJobsStore();
+const { headlessJobs, createJobRecord, finalizeJob, pruneJobs } = headlessJobsStore;
 
 const sceneSnapshotService = createSceneSnapshotService({
   store,
@@ -429,16 +303,7 @@ app.use((err, _req, res, _next) => {
 const heartbeatInterval = setInterval(() => {
   store.broadcastHeartbeat();
   requireRateLimit.prune(Math.max(5 * 60 * 1000, RATE_LIMIT_WINDOW_MS * 2));
-
-  if (headlessJobs.size > 1000) {
-    const sorted = Array.from(headlessJobs.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
-    const keep = new Set(sorted.slice(0, 500).map((job) => job.id));
-    for (const id of headlessJobs.keys()) {
-      if (!keep.has(id)) {
-        headlessJobs.delete(id);
-      }
-    }
-  }
+  pruneJobs();
 }, 30000);
 
 function shutdown() {
