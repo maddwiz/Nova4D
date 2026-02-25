@@ -4,6 +4,7 @@
 OpenClaw / LLM Agent / SDK / MCP
   -> HTTP API (Node.js Nova4D bridge, port 30010)
     -> Route modules (system/workflow, scene/introspection, assistant, queue, upload/batch)
+    -> Shared services (scene snapshot cache/resolution + preflight checks)
     -> Command queue (lease-based store with optional JSON/SQLite persistence)
       -> Cinema 4D plugin poller (1s default)
         -> Main-thread command executor
