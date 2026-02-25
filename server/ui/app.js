@@ -116,6 +116,9 @@ const STUDIO_SETTINGS_KEY = "nova4d.studio.settings.v1";
 const PROVIDER_PROFILE_SETTINGS_KEY = "nova4d.studio.provider_profiles.v1";
 const PROVIDER_PROFILE_NONE = "__none__";
 const PROVIDER_PROFILE_NAME_LIMIT = 80;
+const VOICE_COMMAND_PREFIX = "nova command";
+const VOICE_COMMAND_FALLBACK_PREFIX = "nova";
+const VOICE_COMMAND_DEDUP_MS = 2500;
 let liveStreamSource = null;
 let liveStreamReconnectTimer = null;
 let liveStreamRefreshTimer = null;
@@ -132,6 +135,7 @@ let providerTestState = {
   error: "",
   at: null,
 };
+let lastVoiceShortcut = { key: "", at: 0 };
 
 function escapeHtml(input) {
   return String(input)
@@ -1540,6 +1544,187 @@ async function captureSnapshot() {
   }
 }
 
+function normalizeVoiceText(input) {
+  return String(input || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function trimVoicePrompt(input) {
+  return String(input || "")
+    .replace(/^[:;,\-.!? ]+/, "")
+    .trim();
+}
+
+function stripVoiceCommandPrefix(normalizedText) {
+  if (normalizedText.startsWith(`${VOICE_COMMAND_PREFIX} `)) {
+    return normalizedText.slice(VOICE_COMMAND_PREFIX.length).trim();
+  }
+  if (normalizedText === VOICE_COMMAND_PREFIX) {
+    return "";
+  }
+  if (normalizedText.startsWith(`${VOICE_COMMAND_FALLBACK_PREFIX} `)) {
+    return normalizedText.slice(VOICE_COMMAND_FALLBACK_PREFIX.length).trim();
+  }
+  if (normalizedText === VOICE_COMMAND_FALLBACK_PREFIX) {
+    return "";
+  }
+  return null;
+}
+
+function parseVoiceShortcut(rawTranscript) {
+  const normalized = normalizeVoiceText(rawTranscript);
+  const body = stripVoiceCommandPrefix(normalized);
+  if (body === null) {
+    return null;
+  }
+  const command = trimVoicePrompt(body);
+  if (!command) {
+    return {
+      action: "help",
+      label: "Show voice command help",
+      key: "help",
+      prompt: "",
+    };
+  }
+
+  const planRunMatch = command.match(/^(plan|run)\b(.*)$/);
+  if (planRunMatch) {
+    const action = planRunMatch[1] === "plan" ? "plan" : "run";
+    const prompt = trimVoicePrompt(planRunMatch[2] || "");
+    return {
+      action,
+      label: action === "plan" ? "Plan request" : "Run request",
+      key: `${action}|${prompt}`,
+      prompt,
+    };
+  }
+
+  if (/^queue(?:\s+last)?\s+plan$/.test(command)) {
+    return { action: "queue-plan", label: "Queue last reviewed plan", key: "queue-plan", prompt: "" };
+  }
+  if (/^run\s+template$/.test(command)) {
+    return { action: "run-template", label: "Run selected template", key: "run-template", prompt: "" };
+  }
+  if (/^preview\s+template$/.test(command)) {
+    return { action: "preview-template", label: "Preview selected template", key: "preview-template", prompt: "" };
+  }
+  if (/^(guided|setup)\s+check(?:list)?$/.test(command)) {
+    return { action: "guided-check", label: "Run guided checklist", key: "guided-check", prompt: "" };
+  }
+  if (/^(scene\s+)?snapshot$/.test(command)) {
+    return { action: "snapshot", label: "Capture scene snapshot", key: "snapshot", prompt: "" };
+  }
+  if (/^(test\s+provider|provider\s+test)$/.test(command)) {
+    return { action: "provider-test", label: "Test provider connection", key: "provider-test", prompt: "" };
+  }
+  if (/^(stop|stop\s+listening|end\s+voice)$/.test(command)) {
+    return { action: "stop-listening", label: "Stop voice input", key: "stop-listening", prompt: "" };
+  }
+  if (/^(help|commands)$/.test(command)) {
+    return { action: "help", label: "Show voice command help", key: "help", prompt: "" };
+  }
+
+  return null;
+}
+
+function shouldSkipVoiceShortcut(shortcut) {
+  const now = Date.now();
+  const key = String(shortcut?.key || "");
+  if (!key) {
+    return false;
+  }
+  if (lastVoiceShortcut.key === key && now - lastVoiceShortcut.at < VOICE_COMMAND_DEDUP_MS) {
+    return true;
+  }
+  lastVoiceShortcut = { key, at: now };
+  return false;
+}
+
+async function executeVoiceShortcut(shortcut, previousPrompt = "") {
+  if (!shortcut) {
+    return false;
+  }
+  if (shouldSkipVoiceShortcut(shortcut)) {
+    return true;
+  }
+  try {
+    if (shortcut.prompt) {
+      nodes.promptInput.value = shortcut.prompt;
+    } else if (!nodes.promptInput.value.trim() && previousPrompt) {
+      nodes.promptInput.value = previousPrompt;
+    }
+
+    if (shortcut.action === "help") {
+      nodes.voiceStatus.textContent =
+        "Voice commands: \"nova command plan ...\", \"nova command run ...\", \"nova command run template\", \"nova command preview template\", \"nova command guided check\".";
+      return true;
+    }
+
+    nodes.voiceStatus.textContent = `Voice command: ${shortcut.label}...`;
+    if (shortcut.action === "plan") {
+      if (!nodes.promptInput.value.trim()) {
+        nodes.voiceStatus.textContent = "Voice command requires a prompt. Say: nova command plan create a cube.";
+        return true;
+      }
+      await planOnly();
+      nodes.voiceStatus.textContent = "Voice command complete: plan generated.";
+      return true;
+    }
+    if (shortcut.action === "run") {
+      if (!nodes.promptInput.value.trim()) {
+        nodes.voiceStatus.textContent = "Voice command requires a prompt. Say: nova command run create a cube.";
+        return true;
+      }
+      await runPlan();
+      nodes.voiceStatus.textContent = "Voice command complete: run submitted.";
+      return true;
+    }
+    if (shortcut.action === "queue-plan") {
+      await queueLastPlan();
+      nodes.voiceStatus.textContent = "Voice command complete: queued reviewed plan.";
+      return true;
+    }
+    if (shortcut.action === "run-template") {
+      await runTemplateWorkflow();
+      nodes.voiceStatus.textContent = "Voice command complete: template run requested.";
+      return true;
+    }
+    if (shortcut.action === "preview-template") {
+      await previewTemplateWorkflow();
+      nodes.voiceStatus.textContent = "Voice command complete: template preview generated.";
+      return true;
+    }
+    if (shortcut.action === "guided-check") {
+      await runGuidedCheck();
+      nodes.voiceStatus.textContent = "Voice command complete: guided check finished.";
+      return true;
+    }
+    if (shortcut.action === "snapshot") {
+      await captureSnapshot();
+      nodes.voiceStatus.textContent = "Voice command complete: scene snapshot captured.";
+      return true;
+    }
+    if (shortcut.action === "provider-test") {
+      await testProviderConnection();
+      nodes.voiceStatus.textContent = "Voice command complete: provider test finished.";
+      return true;
+    }
+    if (shortcut.action === "stop-listening") {
+      if (recognition) {
+        recognition.stop();
+      }
+      nodes.voiceStatus.textContent = "Voice input stopped.";
+      return true;
+    }
+  } catch (err) {
+    nodes.voiceStatus.textContent = `Voice command failed: ${err.message}`;
+    return true;
+  }
+  return false;
+}
+
 function initVoice() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
@@ -1559,11 +1744,30 @@ function initVoice() {
   };
 
   recognition.onresult = (event) => {
-    let fullTranscript = "";
+    const previousPrompt = (nodes.promptInput.value || "").trim();
+    const transcriptParts = [];
+    const shortcuts = [];
+
     for (let i = 0; i < event.results.length; i += 1) {
-      fullTranscript += `${event.results[i][0].transcript} `;
+      const result = event.results[i];
+      const transcript = String(result?.[0]?.transcript || "").trim();
+      if (!transcript) {
+        continue;
+      }
+      if (result.isFinal) {
+        const shortcut = parseVoiceShortcut(transcript);
+        if (shortcut) {
+          shortcuts.push(shortcut);
+          continue;
+        }
+      }
+      transcriptParts.push(transcript);
     }
-    nodes.promptInput.value = fullTranscript.trim();
+
+    nodes.promptInput.value = transcriptParts.join(" ").trim();
+    shortcuts.forEach((shortcut) => {
+      void executeVoiceShortcut(shortcut, previousPrompt);
+    });
   };
 
   recognition.onerror = (event) => {

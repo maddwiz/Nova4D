@@ -72,6 +72,7 @@ From the UI you can:
 - Toggle template mode between AI planning and deterministic execution
 - Configure deterministic workflow options (names/frame range/output) and preview before run
 - Dictate prompts with browser voice input
+- Use voice shortcuts (`nova command plan ...`, `nova command run ...`, `nova command run template`, `nova command guided check`)
 - Run one-click preflight diagnostics (paths, plugin presence, worker probe)
 - Run a one-click guided checklist for bridge/local/worker/provider readiness
 - View consolidated system status (queue, readiness, stream clients, snapshot health)
