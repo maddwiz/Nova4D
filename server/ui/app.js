@@ -33,6 +33,7 @@ const nodes = {
   systemStatusButton: document.getElementById("systemStatusButton"),
   systemStatusSummary: document.getElementById("systemStatusSummary"),
   systemStatusList: document.getElementById("systemStatusList"),
+  cancelPendingButton: document.getElementById("cancelPendingButton"),
   refreshButton: document.getElementById("refreshButton"),
   loadRecentButton: document.getElementById("loadRecentButton"),
   voiceStart: document.getElementById("voiceStart"),
@@ -585,6 +586,22 @@ async function cancelCommand(commandId) {
   nodes.runSummary.textContent = `Canceled command ${commandId}.`;
 }
 
+async function cancelPendingCommands() {
+  const confirmed = window.confirm("Cancel all queued/dispatched commands?");
+  if (!confirmed) {
+    return;
+  }
+  const response = await api("/nova4d/commands/cancel-pending", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const count = Number(response.canceled_count || 0);
+  nodes.runSummary.textContent = count > 0
+    ? `Canceled ${count} pending command${count === 1 ? "" : "s"}.`
+    : "No pending commands to cancel.";
+}
+
 async function handleRecentTableAction(event) {
   const button = event.target.closest("button[data-cmd-action]");
   if (!button) {
@@ -969,6 +986,16 @@ nodes.bridgeApiKey.addEventListener("change", () => {
 nodes.refreshButton.addEventListener("click", loadHealth);
 nodes.loadRecentButton.addEventListener("click", loadRecent);
 nodes.systemStatusButton.addEventListener("click", loadSystemStatus);
+nodes.cancelPendingButton.addEventListener("click", async () => {
+  try {
+    await cancelPendingCommands();
+    await loadRecent();
+    await loadHealth();
+    await loadSystemStatus();
+  } catch (err) {
+    nodes.runSummary.textContent = `Cancel pending failed: ${err.message}`;
+  }
+});
 nodes.preflightButton.addEventListener("click", async () => runPreflight(false));
 nodes.preflightProbeButton.addEventListener("click", async () => runPreflight(true));
 nodes.snapshotButton.addEventListener("click", captureSnapshot);

@@ -107,6 +107,14 @@ class CommandStore {
     const resultOk = input.ok === true || String(input.status || "").toLowerCase() === "ok";
     const shouldRequeue = input.requeue === true;
 
+    // Ignore late/double result posts once a command is terminal.
+    if (cmd.status === "canceled") {
+      return { ok: true, command: cmd, ignored: true };
+    }
+    if ((cmd.status === "succeeded" || cmd.status === "failed") && !shouldRequeue) {
+      return { ok: true, command: cmd, ignored: true };
+    }
+
     cmd.result = input.result || null;
     cmd.error = input.error || null;
     cmd.updated_at = new Date(now).toISOString();
@@ -153,6 +161,52 @@ class CommandStore {
     this.stats.canceled_total += 1;
     this._broadcast("canceled", { id: cmd.id });
     return { ok: true, command: cmd };
+  }
+
+  cancelPending() {
+    const now = new Date().toISOString();
+    const canceled = [];
+    const keepPending = [];
+
+    for (const pendingId of this.pending) {
+      const cmd = this.commands.get(pendingId);
+      if (!cmd || cmd.status !== "queued") {
+        continue;
+      }
+      cmd.status = "canceled";
+      cmd.updated_at = now;
+      cmd.completed_at = now;
+      cmd.lease_expires_at = null;
+      canceled.push(cmd.id);
+      this.stats.canceled_total += 1;
+      this._broadcast("canceled", { id: cmd.id, bulk: true });
+    }
+
+    for (const cmd of this.commands.values()) {
+      if (cmd.status === "dispatched") {
+        cmd.status = "canceled";
+        cmd.updated_at = now;
+        cmd.completed_at = now;
+        cmd.lease_expires_at = null;
+        canceled.push(cmd.id);
+        this.stats.canceled_total += 1;
+        this._broadcast("canceled", { id: cmd.id, bulk: true });
+      }
+    }
+
+    for (const pendingId of this.pending) {
+      const cmd = this.commands.get(pendingId);
+      if (cmd && cmd.status === "queued") {
+        keepPending.push(pendingId);
+      }
+    }
+    this.pending = keepPending;
+
+    return {
+      ok: true,
+      canceled_count: canceled.length,
+      command_ids: canceled,
+    };
   }
 
   requeue(id) {

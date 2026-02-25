@@ -1537,6 +1537,7 @@ app.post("/nova4d/results", requireApiKey, (req, res) => {
   }
   return res.json({
     status: "ok",
+    ignored: Boolean(result.ignored),
     command_id: result.command.id,
     command_status: result.command.status,
     updated_at: result.command.updated_at,
@@ -1557,6 +1558,15 @@ app.post("/nova4d/commands/:id/cancel", requireApiKey, (req, res) => {
     return res.status(400).json({ status: "error", error: result.error });
   }
   return res.json({ status: "ok", command: result.command });
+});
+
+app.post("/nova4d/commands/cancel-pending", requireApiKey, (_req, res) => {
+  const result = store.cancelPending();
+  return res.json({
+    status: "ok",
+    canceled_count: result.canceled_count,
+    command_ids: result.command_ids,
+  });
 });
 
 app.get("/nova4d/stream", requireApiKey, (req, res) => {

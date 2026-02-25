@@ -139,6 +139,15 @@ curl -s -X POST "${BASE_URL}/nova4d/commands/<command_id>/cancel" \
   -d '{}' | jq .
 ```
 
+### Cancel All Pending Commands
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/commands/cancel-pending" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{}' | jq .
+```
+
 ### Launch Immediate c4dpy Batch Render
 
 ```bash
