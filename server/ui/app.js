@@ -67,6 +67,8 @@ const nodes = {
   planButton: document.getElementById("planButton"),
   runButton: document.getElementById("runButton"),
   smartRunButton: document.getElementById("smartRunButton"),
+  autoMonitorRuns: document.getElementById("autoMonitorRuns"),
+  runMonitorStatus: document.getElementById("runMonitorStatus"),
   queuePlanButton: document.getElementById("queuePlanButton"),
   providerTestButton: document.getElementById("providerTestButton"),
   providerStatus: document.getElementById("providerStatus"),
@@ -136,6 +138,8 @@ const PROMPT_PRESET_TEXT_LIMIT = 12000;
 const VOICE_COMMAND_PREFIX = "nova command";
 const VOICE_COMMAND_FALLBACK_PREFIX = "nova";
 const VOICE_COMMAND_DEDUP_MS = 2500;
+const RUN_MONITOR_POLL_MS = 900;
+const RUN_MONITOR_TIMEOUT_MS = 3 * 60 * 1000;
 let liveStreamSource = null;
 let liveStreamReconnectTimer = null;
 let liveStreamRefreshTimer = null;
@@ -155,6 +159,7 @@ let providerTestState = {
 };
 let lastVoiceShortcut = { key: "", at: 0 };
 let smartRunInProgress = false;
+let runMonitorToken = 0;
 
 function escapeHtml(input) {
   return String(input)
@@ -560,6 +565,7 @@ function saveStudioSettings() {
     live_stream_enabled: Boolean(nodes.liveStreamEnabled.checked),
     selected_template: nodes.templateSelect.value || "none",
     deterministic_workflow: Boolean(nodes.deterministicWorkflow.checked),
+    auto_monitor_runs: Boolean(nodes.autoMonitorRuns.checked),
     selected_prompt_preset: nodes.promptPresetSelect.value || PROMPT_PRESET_NONE,
     prompt_preset_name: (nodes.promptPresetName.value || "").trim(),
     recent_status_filter: nodes.recentStatusFilter.value || "",
@@ -620,6 +626,9 @@ function applyStoredSettings(settings) {
   }
   if (typeof settings.deterministic_workflow === "boolean") {
     nodes.deterministicWorkflow.checked = settings.deterministic_workflow;
+  }
+  if (typeof settings.auto_monitor_runs === "boolean") {
+    nodes.autoMonitorRuns.checked = settings.auto_monitor_runs;
   }
   if (typeof settings.selected_prompt_preset === "string") {
     nodes.promptPresetSelect.value = settings.selected_prompt_preset;
@@ -1562,6 +1571,133 @@ function renderRun(runResponse) {
   }
 }
 
+function setRunMonitorStatus(text, className = "hint") {
+  nodes.runMonitorStatus.textContent = text;
+  nodes.runMonitorStatus.className = className;
+}
+
+function normalizeCommandStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (!normalized) {
+    return "unknown";
+  }
+  return normalized;
+}
+
+function summarizeCommandStatuses(commands) {
+  const summary = {
+    total: Array.isArray(commands) ? commands.length : 0,
+    queued: 0,
+    dispatched: 0,
+    succeeded: 0,
+    failed: 0,
+    canceled: 0,
+    unknown: 0,
+    terminal: 0,
+  };
+  (commands || []).forEach((command) => {
+    const status = normalizeCommandStatus(command?.status);
+    if (status === "queued") {
+      summary.queued += 1;
+    } else if (status === "dispatched") {
+      summary.dispatched += 1;
+    } else if (status === "succeeded") {
+      summary.succeeded += 1;
+    } else if (status === "failed") {
+      summary.failed += 1;
+    } else if (status === "canceled") {
+      summary.canceled += 1;
+    } else {
+      summary.unknown += 1;
+    }
+  });
+  summary.terminal = summary.succeeded + summary.failed + summary.canceled;
+  return summary;
+}
+
+async function monitorQueuedCommands(queuedCommands, sourceLabel = "Run") {
+  const queueRows = Array.isArray(queuedCommands) ? queuedCommands : [];
+  const commandIds = Array.from(new Set(
+    queueRows
+      .map((row) => String(row?.id || "").trim())
+      .filter(Boolean)
+  ));
+  if (!commandIds.length) {
+    setRunMonitorStatus(`${sourceLabel}: queued commands have no IDs to monitor.`, "status-warn");
+    return { monitored: false, reason: "missing-command-ids" };
+  }
+
+  const token = runMonitorToken + 1;
+  runMonitorToken = token;
+  const startedAt = Date.now();
+  setRunMonitorStatus(
+    `${sourceLabel}: monitoring ${commandIds.length} command${commandIds.length === 1 ? "" : "s"}...`,
+    "status-warn"
+  );
+
+  while (Date.now() - startedAt <= RUN_MONITOR_TIMEOUT_MS) {
+    if (token !== runMonitorToken) {
+      return { monitored: false, canceled: true };
+    }
+
+    const snapshots = await Promise.all(commandIds.map(async (commandId) => {
+      try {
+        const response = await api(`/nova4d/commands/${encodeURIComponent(commandId)}`);
+        return response.command || { id: commandId, status: "unknown" };
+      } catch (_err) {
+        return { id: commandId, status: "unknown" };
+      }
+    }));
+
+    if (token !== runMonitorToken) {
+      return { monitored: false, canceled: true };
+    }
+
+    const summary = summarizeCommandStatuses(snapshots);
+    const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+    const completed = summary.terminal === summary.total;
+    const className = completed
+      ? (summary.failed > 0 ? "status-error" : "status-ok")
+      : "status-warn";
+    const text =
+      `${sourceLabel}: ${summary.terminal}/${summary.total} complete | ok ${summary.succeeded} failed ${summary.failed} canceled ${summary.canceled} queued ${summary.queued} dispatched ${summary.dispatched} | ${elapsedSec}s`;
+    setRunMonitorStatus(text, className);
+
+    if (completed) {
+      await loadRecent();
+      await loadHealth();
+      await loadSystemStatus();
+      return { monitored: true, completed: true, summary };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, RUN_MONITOR_POLL_MS));
+  }
+
+  if (token === runMonitorToken) {
+    setRunMonitorStatus(
+      `${sourceLabel}: monitor timeout after ${Math.floor(RUN_MONITOR_TIMEOUT_MS / 1000)}s. Check recent commands for pending jobs.`,
+      "status-warn"
+    );
+  }
+  return { monitored: true, completed: false, timeout: true };
+}
+
+async function maybeAutoMonitorQueued(queuedCommands, sourceLabel = "Run") {
+  const queueRows = Array.isArray(queuedCommands) ? queuedCommands : [];
+  if (!queueRows.length) {
+    setRunMonitorStatus(`${sourceLabel}: no queued commands to monitor.`, "hint");
+    return { monitored: false, reason: "none-queued" };
+  }
+  if (!nodes.autoMonitorRuns.checked) {
+    setRunMonitorStatus(
+      `${sourceLabel}: queued ${queueRows.length} command${queueRows.length === 1 ? "" : "s"} (auto monitor disabled).`,
+      "hint"
+    );
+    return { monitored: false, reason: "auto-monitor-disabled" };
+  }
+  return monitorQueuedCommands(queueRows, sourceLabel);
+}
+
 async function testProviderConnection() {
   const fingerprint = providerConfigFingerprint();
   setProviderStatus("Testing provider connection...", "status-warn");
@@ -1653,6 +1789,7 @@ async function runPlan() {
     renderPlan(response);
     renderRun(response);
     await loadRecent();
+    void maybeAutoMonitorQueued(response.queued || [], "AI run");
     return true;
   } catch (err) {
     nodes.runSummary.textContent = `Run failed: ${err.message}`;
@@ -1721,6 +1858,7 @@ async function queueLastPlan() {
       scene_context: { enabled: false },
     });
     await loadRecent();
+    void maybeAutoMonitorQueued(response.queued || [], "Reviewed plan queue");
   } catch (err) {
     nodes.runSummary.textContent = `Queue failed: ${err.message}`;
   }
@@ -1828,6 +1966,7 @@ async function runTemplateWorkflow() {
       await loadRecent();
       await loadHealth();
       await loadSystemStatus();
+      void maybeAutoMonitorQueued(queued, `${workflow.name || selected.label}`);
       return;
     } catch (err) {
       nodes.runSummary.textContent = `Deterministic workflow failed: ${err.message}`;
@@ -2225,6 +2364,15 @@ nodes.promptPresetDeleteButton.addEventListener("click", deleteSelectedPromptPre
 nodes.recentStatusFilter.addEventListener("change", async () => {
   await applyRecentFilters();
 });
+nodes.autoMonitorRuns.addEventListener("change", () => {
+  saveStudioSettings();
+  if (nodes.autoMonitorRuns.checked) {
+    setRunMonitorStatus("Run monitor enabled.", "hint");
+    return;
+  }
+  runMonitorToken += 1;
+  setRunMonitorStatus("Run monitor disabled.", "hint");
+});
 nodes.applyRecentFiltersButton.addEventListener("click", async () => {
   await applyRecentFilters();
 });
@@ -2348,6 +2496,7 @@ nodes.providerProfileRememberKey.addEventListener("change", () => {
   nodes.useSceneContext,
   nodes.refreshSceneContext,
   nodes.liveStreamEnabled,
+  nodes.autoMonitorRuns,
   nodes.templateSelect,
   nodes.deterministicWorkflow,
   nodes.promptPresetSelect,
@@ -2381,6 +2530,7 @@ nodes.providerProfileRememberKey.addEventListener("change", () => {
 });
 
 window.addEventListener("beforeunload", () => {
+  runMonitorToken += 1;
   disconnectLiveStream("Live stream offline.");
 });
 
@@ -2391,6 +2541,7 @@ window.addEventListener("beforeunload", () => {
   nodes.useSceneContext.checked = true;
   nodes.refreshSceneContext.checked = true;
   nodes.liveStreamEnabled.checked = true;
+  nodes.autoMonitorRuns.checked = true;
   populateTemplateSelect();
   nodes.templateSelect.value = "none";
   nodes.deterministicWorkflow.checked = true;
@@ -2413,6 +2564,7 @@ window.addEventListener("beforeunload", () => {
   nodes.providerProfileName.value = "";
   nodes.providerProfileRememberKey.checked = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
+  setRunMonitorStatus("Run monitor idle.", "hint");
   nodes.guidedCheckSummary.className = "hint";
   nodes.guidedCheckSummary.textContent = "Checklist not run in this session.";
   nodes.guidedCheckList.innerHTML = "<li class='hint'>Run guided check to populate readiness results.</li>";
@@ -2423,6 +2575,11 @@ window.addEventListener("beforeunload", () => {
   renderProviderProfiles();
   renderPromptPresets();
   applyStoredSettings(loadStoredSettings());
+  if (nodes.autoMonitorRuns.checked) {
+    setRunMonitorStatus("Run monitor idle.", "hint");
+  } else {
+    setRunMonitorStatus("Run monitor disabled.", "hint");
+  }
   renderPromptPresets(nodes.promptPresetSelect.value);
   applyProviderDefaults();
   invalidateProviderTestState();
