@@ -28,6 +28,12 @@ const nodes = {
   previewTemplateButton: document.getElementById("previewTemplateButton"),
   runTemplateButton: document.getElementById("runTemplateButton"),
   promptInput: document.getElementById("promptInput"),
+  promptPresetSelect: document.getElementById("promptPresetSelect"),
+  promptPresetName: document.getElementById("promptPresetName"),
+  promptPresetLoadButton: document.getElementById("promptPresetLoadButton"),
+  promptPresetSaveButton: document.getElementById("promptPresetSaveButton"),
+  promptPresetDeleteButton: document.getElementById("promptPresetDeleteButton"),
+  promptPresetStatus: document.getElementById("promptPresetStatus"),
   voiceStatus: document.getElementById("voiceStatus"),
   planSummary: document.getElementById("planSummary"),
   planCommands: document.getElementById("planCommands"),
@@ -123,6 +129,10 @@ const STUDIO_SETTINGS_KEY = "nova4d.studio.settings.v1";
 const PROVIDER_PROFILE_SETTINGS_KEY = "nova4d.studio.provider_profiles.v1";
 const PROVIDER_PROFILE_NONE = "__none__";
 const PROVIDER_PROFILE_NAME_LIMIT = 80;
+const PROMPT_PRESET_SETTINGS_KEY = "nova4d.studio.prompt_presets.v1";
+const PROMPT_PRESET_NONE = "__none__";
+const PROMPT_PRESET_NAME_LIMIT = 80;
+const PROMPT_PRESET_TEXT_LIMIT = 12000;
 const VOICE_COMMAND_PREFIX = "nova command";
 const VOICE_COMMAND_FALLBACK_PREFIX = "nova";
 const VOICE_COMMAND_DEDUP_MS = 2500;
@@ -133,6 +143,7 @@ const LIVE_STREAM_RECONNECT_MS = 2000;
 const LIVE_STREAM_MAX_EVENTS = 40;
 let recentCommandMap = new Map();
 let providerProfiles = [];
+let promptPresets = [];
 let providerTestState = {
   tested: false,
   ok: false,
@@ -365,6 +376,177 @@ function deleteSelectedProviderProfile() {
   setProviderProfileStatus(`Deleted profile "${profile.name}".`, "hint");
 }
 
+function sanitizePromptPresetName(value) {
+  return String(value || "").trim().slice(0, PROMPT_PRESET_NAME_LIMIT);
+}
+
+function sanitizePromptPresetText(value) {
+  return String(value || "").trim().slice(0, PROMPT_PRESET_TEXT_LIMIT);
+}
+
+function defaultPromptPresetName() {
+  const prompt = sanitizePromptPresetText(nodes.promptInput.value || "");
+  if (!prompt) {
+    return "prompt-preset";
+  }
+  const words = prompt.split(/\s+/).filter(Boolean).slice(0, 4);
+  return sanitizePromptPresetName(words.join(" ")) || "prompt-preset";
+}
+
+function normalizePromptPreset(row) {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+  const name = sanitizePromptPresetName(row.name);
+  const prompt = sanitizePromptPresetText(row.prompt);
+  if (!name || !prompt) {
+    return null;
+  }
+  return {
+    name,
+    prompt,
+    updated_at: String(row.updated_at || new Date().toISOString()),
+  };
+}
+
+function loadPromptPresets() {
+  try {
+    const raw = window.localStorage.getItem(PROMPT_PRESET_SETTINGS_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    const byName = new Map();
+    parsed.forEach((row) => {
+      const preset = normalizePromptPreset(row);
+      if (!preset) {
+        return;
+      }
+      byName.set(preset.name.toLowerCase(), preset);
+    });
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  } catch (_err) {
+    return [];
+  }
+}
+
+function savePromptPresets() {
+  try {
+    window.localStorage.setItem(PROMPT_PRESET_SETTINGS_KEY, JSON.stringify(promptPresets));
+  } catch (_err) {
+    // Ignore storage failures in restricted/private browser contexts.
+  }
+}
+
+function selectedPromptPreset() {
+  const selectedName = sanitizePromptPresetName(nodes.promptPresetSelect.value);
+  if (!selectedName || selectedName === PROMPT_PRESET_NONE) {
+    return null;
+  }
+  return promptPresets.find((preset) => preset.name === selectedName) || null;
+}
+
+function setPromptPresetStatus(text, className = "hint") {
+  nodes.promptPresetStatus.textContent = text;
+  nodes.promptPresetStatus.className = className;
+}
+
+function updatePromptPresetButtons() {
+  const hasSelection = Boolean(selectedPromptPreset());
+  nodes.promptPresetLoadButton.disabled = !hasSelection;
+  nodes.promptPresetDeleteButton.disabled = !hasSelection;
+}
+
+function renderPromptPresets(preferredSelection = "") {
+  const requested = sanitizePromptPresetName(preferredSelection);
+  const previous = sanitizePromptPresetName(nodes.promptPresetSelect.value);
+  const targetSelection = requested || previous;
+  nodes.promptPresetSelect.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = PROMPT_PRESET_NONE;
+  placeholder.textContent = promptPresets.length ? "Select saved preset" : "No saved presets";
+  nodes.promptPresetSelect.appendChild(placeholder);
+
+  promptPresets.forEach((preset) => {
+    const option = document.createElement("option");
+    option.value = preset.name;
+    option.textContent = preset.name;
+    nodes.promptPresetSelect.appendChild(option);
+  });
+
+  if (targetSelection && promptPresets.some((preset) => preset.name === targetSelection)) {
+    nodes.promptPresetSelect.value = targetSelection;
+  } else {
+    nodes.promptPresetSelect.value = PROMPT_PRESET_NONE;
+  }
+  updatePromptPresetButtons();
+}
+
+function saveCurrentPromptPreset() {
+  const prompt = sanitizePromptPresetText(nodes.promptInput.value || "");
+  if (!prompt) {
+    setPromptPresetStatus("Enter a prompt before saving a preset.", "status-warn");
+    return;
+  }
+  const presetName = sanitizePromptPresetName(nodes.promptPresetName.value) || defaultPromptPresetName();
+  const preset = normalizePromptPreset({
+    name: presetName,
+    prompt,
+    updated_at: new Date().toISOString(),
+  });
+  if (!preset) {
+    setPromptPresetStatus("Enter a valid preset name before saving.", "status-warn");
+    return;
+  }
+
+  const existingIndex = promptPresets.findIndex((item) => item.name.toLowerCase() === preset.name.toLowerCase());
+  if (existingIndex >= 0) {
+    promptPresets.splice(existingIndex, 1, preset);
+  } else {
+    promptPresets.push(preset);
+  }
+  promptPresets.sort((a, b) => a.name.localeCompare(b.name));
+  savePromptPresets();
+  renderPromptPresets(preset.name);
+  nodes.promptPresetName.value = preset.name;
+  setPromptPresetStatus(`Saved preset "${preset.name}".`, "status-ok");
+  saveStudioSettings();
+}
+
+function loadSelectedPromptPreset() {
+  const preset = selectedPromptPreset();
+  if (!preset) {
+    setPromptPresetStatus("Select a saved preset first.", "status-warn");
+    return;
+  }
+  nodes.promptInput.value = preset.prompt;
+  nodes.promptPresetName.value = preset.name;
+  setPromptPresetStatus(`Loaded preset "${preset.name}".`, "status-ok");
+  saveStudioSettings();
+}
+
+function deleteSelectedPromptPreset() {
+  const preset = selectedPromptPreset();
+  if (!preset) {
+    setPromptPresetStatus("Select a saved preset to delete.", "status-warn");
+    return;
+  }
+  const confirmed = window.confirm(`Delete prompt preset "${preset.name}"?`);
+  if (!confirmed) {
+    return;
+  }
+  promptPresets = promptPresets.filter((item) => item.name !== preset.name);
+  savePromptPresets();
+  renderPromptPresets();
+  nodes.promptPresetName.value = "";
+  setPromptPresetStatus(`Deleted preset "${preset.name}".`, "hint");
+  saveStudioSettings();
+}
+
 function saveStudioSettings() {
   const settings = {
     provider_kind: nodes.providerKind.value || "builtin",
@@ -378,6 +560,8 @@ function saveStudioSettings() {
     live_stream_enabled: Boolean(nodes.liveStreamEnabled.checked),
     selected_template: nodes.templateSelect.value || "none",
     deterministic_workflow: Boolean(nodes.deterministicWorkflow.checked),
+    selected_prompt_preset: nodes.promptPresetSelect.value || PROMPT_PRESET_NONE,
+    prompt_preset_name: (nodes.promptPresetName.value || "").trim(),
     recent_status_filter: nodes.recentStatusFilter.value || "",
     recent_route_filter: (nodes.recentRouteFilter.value || "").trim(),
     recent_action_filter: (nodes.recentActionFilter.value || "").trim(),
@@ -436,6 +620,12 @@ function applyStoredSettings(settings) {
   }
   if (typeof settings.deterministic_workflow === "boolean") {
     nodes.deterministicWorkflow.checked = settings.deterministic_workflow;
+  }
+  if (typeof settings.selected_prompt_preset === "string") {
+    nodes.promptPresetSelect.value = settings.selected_prompt_preset;
+  }
+  if (typeof settings.prompt_preset_name === "string") {
+    nodes.promptPresetName.value = settings.prompt_preset_name;
   }
   if (typeof settings.recent_status_filter === "string") {
     nodes.recentStatusFilter.value = settings.recent_status_filter;
@@ -2016,6 +2206,22 @@ nodes.useSceneContext.addEventListener("change", () => {
 
 nodes.templateSelect.addEventListener("change", saveStudioSettings);
 nodes.deterministicWorkflow.addEventListener("change", saveStudioSettings);
+nodes.promptPresetSelect.addEventListener("change", () => {
+  const preset = selectedPromptPreset();
+  if (preset) {
+    nodes.promptPresetName.value = preset.name;
+    setPromptPresetStatus(`Selected preset "${preset.name}".`, "hint");
+  } else if (promptPresets.length === 0) {
+    setPromptPresetStatus("No prompt presets saved yet.", "hint");
+  } else {
+    setPromptPresetStatus("Select a preset to load or delete.", "hint");
+  }
+  updatePromptPresetButtons();
+  saveStudioSettings();
+});
+nodes.promptPresetLoadButton.addEventListener("click", loadSelectedPromptPreset);
+nodes.promptPresetSaveButton.addEventListener("click", saveCurrentPromptPreset);
+nodes.promptPresetDeleteButton.addEventListener("click", deleteSelectedPromptPreset);
 nodes.recentStatusFilter.addEventListener("change", async () => {
   await applyRecentFilters();
 });
@@ -2108,6 +2314,16 @@ nodes.providerProfileDeleteButton.addEventListener("click", deleteSelectedProvid
 nodes.promptInput.addEventListener("keydown", (event) => {
   void handlePromptKeyboardShortcuts(event);
 });
+nodes.promptInput.addEventListener("input", () => {
+  saveStudioSettings();
+});
+nodes.promptPresetName.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") {
+    return;
+  }
+  event.preventDefault();
+  saveCurrentPromptPreset();
+});
 nodes.providerProfileName.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") {
     return;
@@ -2134,6 +2350,8 @@ nodes.providerProfileRememberKey.addEventListener("change", () => {
   nodes.liveStreamEnabled,
   nodes.templateSelect,
   nodes.deterministicWorkflow,
+  nodes.promptPresetSelect,
+  nodes.promptPresetName,
   nodes.workflowObjectName,
   nodes.workflowClonerName,
   nodes.workflowMaterialName,
@@ -2185,6 +2403,8 @@ window.addEventListener("beforeunload", () => {
   nodes.workflowEndValue.value = "180";
   nodes.workflowRenderFrame.value = "0";
   nodes.workflowRenderOutput.value = "/tmp/nova4d-workflow-frame.png";
+  nodes.promptPresetSelect.value = PROMPT_PRESET_NONE;
+  nodes.promptPresetName.value = "";
   nodes.recentStatusFilter.value = "";
   nodes.recentRouteFilter.value = "";
   nodes.recentActionFilter.value = "";
@@ -2199,8 +2419,11 @@ window.addEventListener("beforeunload", () => {
   nodes.preflightChecks.innerHTML = "<li class='hint'>Run preflight to validate local setup.</li>";
   nodes.systemStatusList.innerHTML = "<li class='hint'>Refresh system status to load readiness details.</li>";
   providerProfiles = loadProviderProfiles();
+  promptPresets = loadPromptPresets();
   renderProviderProfiles();
+  renderPromptPresets();
   applyStoredSettings(loadStoredSettings());
+  renderPromptPresets(nodes.promptPresetSelect.value);
   applyProviderDefaults();
   invalidateProviderTestState();
   setProviderStatus("Provider not tested in this session.", "hint");
@@ -2208,6 +2431,11 @@ window.addEventListener("beforeunload", () => {
     setProviderProfileStatus("Saved provider profiles loaded.", "hint");
   } else {
     setProviderProfileStatus("No provider profiles saved yet.", "hint");
+  }
+  if (promptPresets.length > 0) {
+    setPromptPresetStatus("Saved prompt presets loaded.", "hint");
+  } else {
+    setPromptPresetStatus("No prompt presets saved yet.", "hint");
   }
   setStreamStatus("Live stream offline.", "hint");
   nodes.systemStatusSummary.className = "hint";

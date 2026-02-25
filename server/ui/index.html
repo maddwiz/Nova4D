@@ -191,6 +191,19 @@
         <button id="runTemplateButton" class="secondary">Run Template</button>
       </div>
       <textarea id="promptInput" rows="5" placeholder="Example: Build a sci-fi cube field using a cloner, create a redshift material, animate x from frame 0 to 60, and render frame 30."></textarea>
+      <h3>Saved Prompt Presets</h3>
+      <div class="inline-actions wrap">
+        <select id="promptPresetSelect">
+          <option value="">No saved presets</option>
+        </select>
+        <input id="promptPresetName" type="text" placeholder="Preset name" autocomplete="off" />
+      </div>
+      <div class="inline-actions">
+        <button id="promptPresetLoadButton" class="secondary">Load Preset</button>
+        <button id="promptPresetSaveButton" class="secondary">Save Preset</button>
+        <button id="promptPresetDeleteButton" class="secondary">Delete Preset</button>
+      </div>
+      <div id="promptPresetStatus" class="hint">No prompt presets saved yet.</div>
       <div class="inline-actions wrap">
         <button id="voiceStart" class="secondary">Start Voice</button>
         <button id="voiceStop" class="secondary">Stop Voice</button>

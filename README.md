@@ -71,6 +71,7 @@ From the UI you can:
 - Use one-click quick workflow templates for common tasks (AI-planned or deterministic via `/nova4d/workflows/run`)
 - Toggle template mode between AI planning and deterministic execution
 - Configure deterministic workflow options (names/frame range/output) and preview before run
+- Save/load/delete reusable prompt presets for repeatable requests
 - Use Smart Run to auto-validate provider config before execution
 - Dictate prompts with browser voice input
 - Use voice shortcuts (`nova command smart run ...`, `nova command plan ...`, `nova command run ...`, `nova command run template`, `nova command guided check`)

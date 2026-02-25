@@ -15,6 +15,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Provides quick workflow templates for common one-click actions (deterministic mode uses `/nova4d/workflows/run`)
 - Includes a toggle to run templates through AI planning or deterministic workflow execution
 - Supports deterministic workflow option inputs and a preview action before queueing
+- Supports saved prompt presets for common text instructions
 - Includes Smart Run to validate provider readiness before execution
 - Runs one-click preflight diagnostics for local setup and optional worker probe
 - Includes a one-click guided checklist (bridge health, local readiness, worker probe, provider status)
