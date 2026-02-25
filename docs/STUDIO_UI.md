@@ -19,6 +19,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Includes Smart Run to validate provider readiness before execution
 - Can auto-monitor queued command IDs to completion with live status summary
 - Includes monitor controls to stop active tracking, inspect/retry failures, export report JSON, and clear monitor session
+- Persists run monitor history (latest 30 sessions) with load/export/clear controls
 - Runs one-click preflight diagnostics for local setup and optional worker probe
 - Includes a one-click guided checklist (bridge health, local readiness, worker probe, provider status)
 - Shows consolidated system status (queue, readiness, stream clients, snapshot + worker activity)

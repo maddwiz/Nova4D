@@ -74,6 +74,11 @@ const nodes = {
   retryMonitorFailuresButton: document.getElementById("retryMonitorFailuresButton"),
   exportRunMonitorButton: document.getElementById("exportRunMonitorButton"),
   clearRunMonitorSessionButton: document.getElementById("clearRunMonitorSessionButton"),
+  runMonitorHistorySelect: document.getElementById("runMonitorHistorySelect"),
+  loadRunMonitorHistoryButton: document.getElementById("loadRunMonitorHistoryButton"),
+  exportRunMonitorHistoryButton: document.getElementById("exportRunMonitorHistoryButton"),
+  clearRunMonitorHistoryButton: document.getElementById("clearRunMonitorHistoryButton"),
+  runMonitorHistoryStatus: document.getElementById("runMonitorHistoryStatus"),
   queuePlanButton: document.getElementById("queuePlanButton"),
   providerTestButton: document.getElementById("providerTestButton"),
   providerStatus: document.getElementById("providerStatus"),
@@ -140,6 +145,9 @@ const PROMPT_PRESET_SETTINGS_KEY = "nova4d.studio.prompt_presets.v1";
 const PROMPT_PRESET_NONE = "__none__";
 const PROMPT_PRESET_NAME_LIMIT = 80;
 const PROMPT_PRESET_TEXT_LIMIT = 12000;
+const RUN_MONITOR_HISTORY_SETTINGS_KEY = "nova4d.studio.run_monitor_history.v1";
+const RUN_MONITOR_HISTORY_NONE = "__none__";
+const RUN_MONITOR_HISTORY_MAX = 30;
 const VOICE_COMMAND_PREFIX = "nova command";
 const VOICE_COMMAND_FALLBACK_PREFIX = "nova";
 const VOICE_COMMAND_DEDUP_MS = 2500;
@@ -153,6 +161,7 @@ const LIVE_STREAM_MAX_EVENTS = 40;
 let recentCommandMap = new Map();
 let providerProfiles = [];
 let promptPresets = [];
+let runMonitorHistory = [];
 let providerTestState = {
   tested: false,
   ok: false,
@@ -1628,6 +1637,246 @@ function clearRunMonitorSession(setStatusMessage = true) {
   }
 }
 
+function runMonitorHistoryId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function sanitizeRunMonitorHistoryCommand(command) {
+  if (!command || typeof command !== "object") {
+    return null;
+  }
+  const id = String(command.id || "").trim();
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    route: String(command.route || "").trim(),
+    action: String(command.action || "").trim(),
+    status: normalizeCommandStatus(command.status),
+    error: String(command.error || "").trim(),
+  };
+}
+
+function normalizeRunMonitorHistoryEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const id = String(entry.id || "").trim() || runMonitorHistoryId();
+  const source = String(entry.source || "Run").trim() || "Run";
+  const startedAt = String(entry.started_at || "").trim();
+  const endedAt = String(entry.ended_at || "").trim();
+  const durationMs = Number.isFinite(Number(entry.duration_ms)) ? Number(entry.duration_ms) : 0;
+  const status = String(entry.status || "completed").trim() || "completed";
+  const commandIds = Array.from(new Set(
+    (Array.isArray(entry.command_ids) ? entry.command_ids : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  ));
+  const commands = (Array.isArray(entry.commands) ? entry.commands : [])
+    .map((row) => sanitizeRunMonitorHistoryCommand(row))
+    .filter(Boolean);
+  const summary = summarizeCommandStatuses(commands);
+  return {
+    id,
+    source,
+    status,
+    started_at: startedAt || new Date().toISOString(),
+    ended_at: endedAt || new Date().toISOString(),
+    duration_ms: Math.max(0, durationMs),
+    command_ids: commandIds.length ? commandIds : commands.map((command) => command.id),
+    summary,
+    commands,
+  };
+}
+
+function loadRunMonitorHistory() {
+  try {
+    const raw = window.localStorage.getItem(RUN_MONITOR_HISTORY_SETTINGS_KEY);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((entry) => normalizeRunMonitorHistoryEntry(entry))
+      .filter(Boolean)
+      .slice(0, RUN_MONITOR_HISTORY_MAX);
+  } catch (_err) {
+    return [];
+  }
+}
+
+function saveRunMonitorHistory() {
+  try {
+    window.localStorage.setItem(RUN_MONITOR_HISTORY_SETTINGS_KEY, JSON.stringify(runMonitorHistory));
+  } catch (_err) {
+    // Ignore storage failures in restricted/private browser contexts.
+  }
+}
+
+function selectedRunMonitorHistoryEntry() {
+  const selectedId = String(nodes.runMonitorHistorySelect.value || "").trim();
+  if (!selectedId || selectedId === RUN_MONITOR_HISTORY_NONE) {
+    return null;
+  }
+  return runMonitorHistory.find((entry) => entry.id === selectedId) || null;
+}
+
+function setRunMonitorHistoryStatus(text, className = "hint") {
+  nodes.runMonitorHistoryStatus.textContent = text;
+  nodes.runMonitorHistoryStatus.className = className;
+}
+
+function updateRunMonitorHistoryButtons() {
+  const hasSelected = Boolean(selectedRunMonitorHistoryEntry());
+  nodes.loadRunMonitorHistoryButton.disabled = !hasSelected;
+  nodes.exportRunMonitorHistoryButton.disabled = !hasSelected;
+  nodes.clearRunMonitorHistoryButton.disabled = runMonitorHistory.length === 0;
+}
+
+function formatRunMonitorHistoryOption(entry) {
+  const ended = Number.isFinite(Date.parse(entry.ended_at))
+    ? new Date(entry.ended_at).toLocaleString()
+    : entry.ended_at;
+  const summary = entry.summary || {};
+  const ok = summary.succeeded || 0;
+  const failed = summary.failed || 0;
+  const canceled = summary.canceled || 0;
+  return `${ended} | ${entry.source} | ok ${ok} fail ${failed} canceled ${canceled}`;
+}
+
+function renderRunMonitorHistory(preferredId = "") {
+  const requested = String(preferredId || "").trim();
+  const previous = String(nodes.runMonitorHistorySelect.value || "").trim();
+  const targetSelection = requested || previous;
+  nodes.runMonitorHistorySelect.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = RUN_MONITOR_HISTORY_NONE;
+  placeholder.textContent = runMonitorHistory.length ? "Select monitor history session" : "No run monitor history";
+  nodes.runMonitorHistorySelect.appendChild(placeholder);
+
+  runMonitorHistory.forEach((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = formatRunMonitorHistoryOption(entry);
+    nodes.runMonitorHistorySelect.appendChild(option);
+  });
+
+  if (targetSelection && runMonitorHistory.some((entry) => entry.id === targetSelection)) {
+    nodes.runMonitorHistorySelect.value = targetSelection;
+  } else {
+    nodes.runMonitorHistorySelect.value = RUN_MONITOR_HISTORY_NONE;
+  }
+  updateRunMonitorHistoryButtons();
+}
+
+function appendRunMonitorHistory(entry) {
+  const normalized = normalizeRunMonitorHistoryEntry(entry);
+  if (!normalized) {
+    return;
+  }
+  runMonitorHistory = [normalized]
+    .concat(runMonitorHistory.filter((existing) => existing.id !== normalized.id))
+    .slice(0, RUN_MONITOR_HISTORY_MAX);
+  saveRunMonitorHistory();
+  renderRunMonitorHistory(normalized.id);
+}
+
+function captureRunMonitorHistorySession(
+  sourceLabel,
+  commandIds,
+  snapshots,
+  status = "completed",
+  startedAtMs = Date.now(),
+  endedAtMs = Date.now()
+) {
+  const started = Number.isFinite(Number(startedAtMs)) ? Number(startedAtMs) : Date.now();
+  const ended = Number.isFinite(Number(endedAtMs)) ? Number(endedAtMs) : Date.now();
+  const safeEnded = Math.max(started, ended);
+  appendRunMonitorHistory({
+    source: String(sourceLabel || "").trim() || "Run",
+    status: String(status || "completed").trim() || "completed",
+    started_at: new Date(started).toISOString(),
+    ended_at: new Date(safeEnded).toISOString(),
+    duration_ms: safeEnded - started,
+    command_ids: commandIds,
+    commands: Array.isArray(snapshots) ? snapshots : [],
+  });
+}
+
+function clearRunMonitorHistory() {
+  runMonitorHistory = [];
+  saveRunMonitorHistory();
+  renderRunMonitorHistory();
+  setRunMonitorHistoryStatus("Run monitor history cleared.", "hint");
+}
+
+async function exportRunMonitorHistoryEntry(entry) {
+  const selected = normalizeRunMonitorHistoryEntry(entry);
+  if (!selected) {
+    return false;
+  }
+  try {
+    const payload = {
+      exported_at: new Date().toISOString(),
+      session: selected,
+    };
+    const serialized = JSON.stringify(payload, null, 2);
+    const blob = new Blob([serialized], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const stamp = payload.exported_at.replace(/[:.]/g, "-");
+    anchor.href = url;
+    anchor.download = `nova4d-run-monitor-history-${stamp}.json`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+    setRunMonitorHistoryStatus("Exported selected run monitor history session.", "status-ok");
+    return true;
+  } catch (_err) {
+    setRunMonitorHistoryStatus("Failed to export selected run monitor history session.", "status-error");
+    return false;
+  }
+}
+
+function loadRunMonitorHistoryEntry(entry) {
+  const selected = normalizeRunMonitorHistoryEntry(entry);
+  if (!selected) {
+    nodes.runSummary.textContent = "Select a monitor history session first.";
+    return false;
+  }
+  setRunMonitorSession(selected.source, selected.command_ids, selected.commands);
+  runMonitorActive = false;
+  updateRunMonitorButtons();
+  lastRunMonitorSnapshots = selected.commands.slice();
+  const summary = selected.summary || summarizeCommandStatuses(selected.commands);
+  const duration = Number.isFinite(Number(selected.duration_ms))
+    ? Math.floor(Number(selected.duration_ms) / 1000)
+    : 0;
+  setRunMonitorStatus(
+    `${selected.source}: history loaded | ok ${summary.succeeded || 0} failed ${summary.failed || 0} canceled ${summary.canceled || 0} | ${duration}s`,
+    summary.failed > 0 ? "status-error" : "hint"
+  );
+  const failures = selected.commands.filter((command) => {
+    const status = normalizeCommandStatus(command?.status);
+    return status === "failed" || status === "canceled";
+  });
+  if (failures.length) {
+    renderMonitorFailureList(failures, `${selected.source} history`);
+  } else {
+    nodes.queuedCommands.innerHTML = "<li class='hint'>No failed commands in selected history session.</li>";
+    nodes.runSummary.textContent = `${selected.source}: loaded history session with no failures.`;
+  }
+  setRunMonitorHistoryStatus("Loaded selected run monitor history session.", "status-ok");
+  return true;
+}
+
 function normalizeCommandStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
   if (!normalized) {
@@ -1881,6 +2130,11 @@ async function monitorQueuedCommands(queuedCommands, sourceLabel = "Run") {
       await loadRecent();
       await loadHealth();
       await loadSystemStatus();
+      captureRunMonitorHistorySession(sourceLabel, commandIds, snapshots, "completed", startedAt, Date.now());
+      setRunMonitorHistoryStatus(
+        `${sourceLabel}: saved run monitor session (${summary.total} command${summary.total === 1 ? "" : "s"}).`,
+        summary.failed > 0 ? "status-warn" : "hint"
+      );
       return { monitored: true, completed: true, summary };
     }
 
@@ -1888,6 +2142,14 @@ async function monitorQueuedCommands(queuedCommands, sourceLabel = "Run") {
   }
 
   if (token === runMonitorToken) {
+    const timeoutSnapshots = await fetchCommandSnapshots(commandIds);
+    lastRunMonitorSnapshots = timeoutSnapshots;
+    const timeoutSummary = summarizeCommandStatuses(timeoutSnapshots);
+    captureRunMonitorHistorySession(sourceLabel, commandIds, timeoutSnapshots, "timeout", startedAt, Date.now());
+    setRunMonitorHistoryStatus(
+      `${sourceLabel}: monitor timeout saved to history (${timeoutSummary.terminal}/${timeoutSummary.total} complete).`,
+      "status-warn"
+    );
     runMonitorActive = false;
     updateRunMonitorButtons();
     setRunMonitorStatus(
@@ -2655,6 +2917,41 @@ nodes.exportRunMonitorButton.addEventListener("click", async () => {
 nodes.clearRunMonitorSessionButton.addEventListener("click", () => {
   clearRunMonitorSession(true);
 });
+nodes.runMonitorHistorySelect.addEventListener("change", () => {
+  const selected = selectedRunMonitorHistoryEntry();
+  if (!selected) {
+    if (runMonitorHistory.length) {
+      setRunMonitorHistoryStatus("Select a run monitor history session.", "hint");
+    } else {
+      setRunMonitorHistoryStatus("No run monitor history yet.", "hint");
+    }
+  } else {
+    setRunMonitorHistoryStatus(
+      `Selected ${selected.source} session (${selected.summary.total || selected.commands.length} command${(selected.summary.total || selected.commands.length) === 1 ? "" : "s"}).`,
+      "hint"
+    );
+  }
+  updateRunMonitorHistoryButtons();
+});
+nodes.loadRunMonitorHistoryButton.addEventListener("click", () => {
+  const selected = selectedRunMonitorHistoryEntry();
+  if (!selected) {
+    setRunMonitorHistoryStatus("Select a run monitor history session first.", "status-warn");
+    return;
+  }
+  loadRunMonitorHistoryEntry(selected);
+});
+nodes.exportRunMonitorHistoryButton.addEventListener("click", async () => {
+  const selected = selectedRunMonitorHistoryEntry();
+  if (!selected) {
+    setRunMonitorHistoryStatus("Select a run monitor history session first.", "status-warn");
+    return;
+  }
+  await exportRunMonitorHistoryEntry(selected);
+});
+nodes.clearRunMonitorHistoryButton.addEventListener("click", () => {
+  clearRunMonitorHistory();
+});
 nodes.applyRecentFiltersButton.addEventListener("click", async () => {
   await applyRecentFilters();
 });
@@ -2855,8 +3152,10 @@ window.addEventListener("beforeunload", () => {
   nodes.systemStatusList.innerHTML = "<li class='hint'>Refresh system status to load readiness details.</li>";
   providerProfiles = loadProviderProfiles();
   promptPresets = loadPromptPresets();
+  runMonitorHistory = loadRunMonitorHistory();
   renderProviderProfiles();
   renderPromptPresets();
+  renderRunMonitorHistory();
   applyStoredSettings(loadStoredSettings());
   if (nodes.autoMonitorRuns.checked) {
     setRunMonitorStatus("Run monitor idle.", "hint");
@@ -2876,6 +3175,14 @@ window.addEventListener("beforeunload", () => {
     setPromptPresetStatus("Saved prompt presets loaded.", "hint");
   } else {
     setPromptPresetStatus("No prompt presets saved yet.", "hint");
+  }
+  if (runMonitorHistory.length > 0) {
+    setRunMonitorHistoryStatus(
+      `Loaded ${runMonitorHistory.length} run monitor history session${runMonitorHistory.length === 1 ? "" : "s"}.`,
+      "hint"
+    );
+  } else {
+    setRunMonitorHistoryStatus("No run monitor history yet.", "hint");
   }
   setStreamStatus("Live stream offline.", "hint");
   nodes.systemStatusSummary.className = "hint";

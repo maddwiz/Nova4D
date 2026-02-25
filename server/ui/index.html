@@ -225,6 +225,18 @@
         <button id="exportRunMonitorButton" class="secondary" disabled>Export Monitor Report</button>
         <button id="clearRunMonitorSessionButton" class="secondary" disabled>Clear Monitor Session</button>
       </div>
+      <h3>Run Monitor History</h3>
+      <div class="inline-actions wrap">
+        <select id="runMonitorHistorySelect">
+          <option value="">No run monitor history</option>
+        </select>
+      </div>
+      <div class="inline-actions">
+        <button id="loadRunMonitorHistoryButton" class="secondary" disabled>Load History Session</button>
+        <button id="exportRunMonitorHistoryButton" class="secondary" disabled>Export History Session</button>
+        <button id="clearRunMonitorHistoryButton" class="secondary" disabled>Clear History</button>
+      </div>
+      <div id="runMonitorHistoryStatus" class="hint">No run monitor history yet.</div>
       <div id="voiceStatus" class="hint">Voice input idle.</div>
       <div class="hint">
         Voice shortcuts: say "nova command smart run ...", "nova command plan ...", "nova command run ...", "nova command run template", "nova command guided check", "nova command show failures", or "nova command retry failures".
