@@ -173,6 +173,11 @@ button:hover {
   margin-bottom: 6px;
 }
 
+.workflow-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 10px;
+}
+
 .mono {
   font-family: var(--font-mono);
 }
@@ -270,6 +275,10 @@ button.tiny {
 
 @media (max-width: 880px) {
   .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-grid {
     grid-template-columns: 1fr;
   }
 

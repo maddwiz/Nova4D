@@ -15,7 +15,17 @@ const nodes = {
   refreshSceneContext: document.getElementById("refreshSceneContext"),
   templateSelect: document.getElementById("templateSelect"),
   deterministicWorkflow: document.getElementById("deterministicWorkflow"),
+  workflowObjectName: document.getElementById("workflowObjectName"),
+  workflowClonerName: document.getElementById("workflowClonerName"),
+  workflowMaterialName: document.getElementById("workflowMaterialName"),
+  workflowFrameStart: document.getElementById("workflowFrameStart"),
+  workflowFrameEnd: document.getElementById("workflowFrameEnd"),
+  workflowStartValue: document.getElementById("workflowStartValue"),
+  workflowEndValue: document.getElementById("workflowEndValue"),
+  workflowRenderFrame: document.getElementById("workflowRenderFrame"),
+  workflowRenderOutput: document.getElementById("workflowRenderOutput"),
   loadTemplateButton: document.getElementById("loadTemplateButton"),
+  previewTemplateButton: document.getElementById("previewTemplateButton"),
   runTemplateButton: document.getElementById("runTemplateButton"),
   promptInput: document.getElementById("promptInput"),
   voiceStatus: document.getElementById("voiceStatus"),
@@ -146,6 +156,15 @@ function saveStudioSettings() {
     selected_template: nodes.templateSelect.value || "none",
     deterministic_workflow: Boolean(nodes.deterministicWorkflow.checked),
     recent_status_filter: nodes.recentStatusFilter.value || "",
+    workflow_object_name: (nodes.workflowObjectName.value || "").trim(),
+    workflow_cloner_name: (nodes.workflowClonerName.value || "").trim(),
+    workflow_material_name: (nodes.workflowMaterialName.value || "").trim(),
+    workflow_frame_start: String(nodes.workflowFrameStart.value || "0"),
+    workflow_frame_end: String(nodes.workflowFrameEnd.value || "30"),
+    workflow_start_value: String(nodes.workflowStartValue.value || "0"),
+    workflow_end_value: String(nodes.workflowEndValue.value || "180"),
+    workflow_render_frame: String(nodes.workflowRenderFrame.value || "0"),
+    workflow_render_output: (nodes.workflowRenderOutput.value || "").trim(),
   };
   try {
     window.localStorage.setItem(STUDIO_SETTINGS_KEY, JSON.stringify(settings));
@@ -194,6 +213,33 @@ function applyStoredSettings(settings) {
   }
   if (typeof settings.recent_status_filter === "string") {
     nodes.recentStatusFilter.value = settings.recent_status_filter;
+  }
+  if (typeof settings.workflow_object_name === "string" && settings.workflow_object_name) {
+    nodes.workflowObjectName.value = settings.workflow_object_name;
+  }
+  if (typeof settings.workflow_cloner_name === "string" && settings.workflow_cloner_name) {
+    nodes.workflowClonerName.value = settings.workflow_cloner_name;
+  }
+  if (typeof settings.workflow_material_name === "string" && settings.workflow_material_name) {
+    nodes.workflowMaterialName.value = settings.workflow_material_name;
+  }
+  if (typeof settings.workflow_frame_start === "string" && settings.workflow_frame_start) {
+    nodes.workflowFrameStart.value = settings.workflow_frame_start;
+  }
+  if (typeof settings.workflow_frame_end === "string" && settings.workflow_frame_end) {
+    nodes.workflowFrameEnd.value = settings.workflow_frame_end;
+  }
+  if (typeof settings.workflow_start_value === "string" && settings.workflow_start_value) {
+    nodes.workflowStartValue.value = settings.workflow_start_value;
+  }
+  if (typeof settings.workflow_end_value === "string" && settings.workflow_end_value) {
+    nodes.workflowEndValue.value = settings.workflow_end_value;
+  }
+  if (typeof settings.workflow_render_frame === "string" && settings.workflow_render_frame) {
+    nodes.workflowRenderFrame.value = settings.workflow_render_frame;
+  }
+  if (typeof settings.workflow_render_output === "string" && settings.workflow_render_output) {
+    nodes.workflowRenderOutput.value = settings.workflow_render_output;
   }
 }
 
@@ -688,6 +734,36 @@ function contextPayload() {
   };
 }
 
+function parseIntOrFallback(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function parseFloatOrFallback(value, fallback) {
+  const parsed = Number.parseFloat(String(value));
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function workflowOptionsPayload() {
+  return {
+    object_name: (nodes.workflowObjectName.value || "").trim() || "WorkflowCube",
+    cloner_name: (nodes.workflowClonerName.value || "").trim() || "WorkflowCloner",
+    material_name: (nodes.workflowMaterialName.value || "").trim() || "WorkflowRedshiftMat",
+    frame_start: parseIntOrFallback(nodes.workflowFrameStart.value, 0),
+    frame_end: parseIntOrFallback(nodes.workflowFrameEnd.value, 30),
+    start_value: parseFloatOrFallback(nodes.workflowStartValue.value, 0),
+    end_value: parseFloatOrFallback(nodes.workflowEndValue.value, 180),
+    render_frame: parseIntOrFallback(nodes.workflowRenderFrame.value, 0),
+    render_output: (nodes.workflowRenderOutput.value || "").trim() || "/tmp/nova4d-workflow-frame.png",
+  };
+}
+
 function applyProviderDefaults() {
   const kind = nodes.providerKind.value;
   const defaults = providerDefaults[kind] || providerDefaults.builtin;
@@ -885,6 +961,68 @@ async function queueLastPlan() {
   }
 }
 
+function renderWorkflowPreview(workflowLabel, commands, blocked, summaryLabel) {
+  const safeCommands = Array.isArray(commands) ? commands : [];
+  const safeBlocked = Array.isArray(blocked) ? blocked : [];
+  nodes.planSummary.textContent =
+    `${workflowLabel} | ${summaryLabel} | commands ${safeCommands.length}${safeBlocked.length ? ` | blocked ${safeBlocked.length}` : ""}`;
+
+  const commandRows = safeCommands.map((item) => {
+    const route = escapeHtml(item.route || "");
+    const reason = escapeHtml(item.reason || "");
+    const payload = escapeHtml(JSON.stringify(item.payload || {}));
+    return `<li><div><span class="code-inline">${route}</span></div><div class="hint">${reason}</div><div class="mono small">${payload}</div></li>`;
+  });
+  const blockedRows = safeBlocked.map((item) => {
+    const route = escapeHtml(item.route || "");
+    const reason = escapeHtml(item.reason || "blocked");
+    return `<li><div><span class="code-inline">${route}</span></div><div class="status-warn">${reason}</div></li>`;
+  });
+  const rows = commandRows.concat(blockedRows);
+  nodes.planCommands.innerHTML = rows.length
+    ? rows.join("")
+    : "<li class='hint'>No commands generated.</li>";
+}
+
+async function previewTemplateWorkflow() {
+  const selected = findTemplate(nodes.templateSelect.value);
+  if (!selected || selected.id === "none") {
+    nodes.planSummary.textContent = "Select a quick workflow template first.";
+    return;
+  }
+
+  if (!nodes.deterministicWorkflow.checked) {
+    if (selected.prompt) {
+      nodes.promptInput.value = selected.prompt;
+    }
+    await planOnly();
+    return;
+  }
+
+  nodes.planSummary.textContent = "Previewing deterministic workflow...";
+  try {
+    const response = await api("/nova4d/workflows/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflow_id: selected.id,
+        options: workflowOptionsPayload(),
+        safety: safetyPayload(),
+        max_commands: Number(nodes.maxCommands.value || 10),
+      }),
+    });
+    const workflow = response.workflow || {};
+    renderWorkflowPreview(
+      workflow.name || selected.label,
+      response.commands || [],
+      response.blocked_commands || [],
+      "deterministic preview"
+    );
+  } catch (err) {
+    nodes.planSummary.textContent = `Preview failed: ${err.message}`;
+  }
+}
+
 async function runTemplateWorkflow() {
   const selected = findTemplate(nodes.templateSelect.value);
   if (!selected || selected.id === "none") {
@@ -899,6 +1037,7 @@ async function runTemplateWorkflow() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workflow_id: selected.id,
+          options: workflowOptionsPayload(),
           safety: safetyPayload(),
           max_commands: Number(nodes.maxCommands.value || 10),
           client_hint: "cinema4d-live",
@@ -908,25 +1047,12 @@ async function runTemplateWorkflow() {
       const workflow = response.workflow || {};
       const blocked = Array.isArray(response.blocked_commands) ? response.blocked_commands : [];
       const queued = Array.isArray(response.queued) ? response.queued : [];
-
-      nodes.planSummary.textContent =
-        `${workflow.name || selected.label} | deterministic workflow | queued ${queued.length}${blocked.length ? ` | blocked ${blocked.length}` : ""}`;
-      nodes.planCommands.innerHTML = queued.map((item) => {
-        const route = escapeHtml(item.route || "");
-        const action = escapeHtml(item.action || "");
-        return `<li><div><span class="code-inline">${route}</span></div><div class="mono small">${action}</div></li>`;
-      }).join("");
-      if (!queued.length && !blocked.length) {
-        nodes.planCommands.innerHTML = "<li class='hint'>No commands queued.</li>";
-      }
-      if (blocked.length) {
-        const blockedRows = blocked.map((item) => {
-          const route = escapeHtml(item.route || "");
-          const reason = escapeHtml(item.reason || "blocked");
-          return `<li><div><span class="code-inline">${route}</span></div><div class="status-warn">${reason}</div></li>`;
-        }).join("");
-        nodes.planCommands.innerHTML += blockedRows;
-      }
+      const previewCommands = queued.map((item) => ({
+        route: item.route,
+        payload: {},
+        reason: item.action || "",
+      }));
+      renderWorkflowPreview(workflow.name || selected.label, previewCommands, blocked, "deterministic workflow");
 
       renderRun({
         plan: { summary: `${workflow.name || selected.label} complete.` },
@@ -1103,6 +1229,7 @@ nodes.snapshotButton.addEventListener("click", captureSnapshot);
 nodes.planButton.addEventListener("click", planOnly);
 nodes.runButton.addEventListener("click", runPlan);
 nodes.loadTemplateButton.addEventListener("click", loadTemplatePrompt);
+nodes.previewTemplateButton.addEventListener("click", previewTemplateWorkflow);
 nodes.runTemplateButton.addEventListener("click", runTemplateWorkflow);
 nodes.queuePlanButton.addEventListener("click", queueLastPlan);
 nodes.providerTestButton.addEventListener("click", testProviderConnection);
@@ -1119,6 +1246,15 @@ nodes.recentTableBody.addEventListener("click", handleRecentTableAction);
   nodes.liveStreamEnabled,
   nodes.templateSelect,
   nodes.deterministicWorkflow,
+  nodes.workflowObjectName,
+  nodes.workflowClonerName,
+  nodes.workflowMaterialName,
+  nodes.workflowFrameStart,
+  nodes.workflowFrameEnd,
+  nodes.workflowStartValue,
+  nodes.workflowEndValue,
+  nodes.workflowRenderFrame,
+  nodes.workflowRenderOutput,
   nodes.recentStatusFilter,
 ].forEach((node) => {
   node.addEventListener("change", saveStudioSettings);
@@ -1142,6 +1278,15 @@ window.addEventListener("beforeunload", () => {
   populateTemplateSelect();
   nodes.templateSelect.value = "none";
   nodes.deterministicWorkflow.checked = true;
+  nodes.workflowObjectName.value = "WorkflowCube";
+  nodes.workflowClonerName.value = "WorkflowCloner";
+  nodes.workflowMaterialName.value = "WorkflowRedshiftMat";
+  nodes.workflowFrameStart.value = "0";
+  nodes.workflowFrameEnd.value = "30";
+  nodes.workflowStartValue.value = "0";
+  nodes.workflowEndValue.value = "180";
+  nodes.workflowRenderFrame.value = "0";
+  nodes.workflowRenderOutput.value = "/tmp/nova4d-workflow-frame.png";
   nodes.recentStatusFilter.value = "";
   nodes.refreshSceneContext.disabled = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";

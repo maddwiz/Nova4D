@@ -69,6 +69,7 @@ From the UI you can:
 - Test provider connectivity before planning/running
 - Use one-click quick workflow templates for common tasks (AI-planned or deterministic via `/nova4d/workflows/run`)
 - Toggle template mode between AI planning and deterministic execution
+- Configure deterministic workflow options (names/frame range/output) and preview before run
 - Dictate prompts with browser voice input
 - Run one-click preflight diagnostics (paths, plugin presence, worker probe)
 - View consolidated system status (queue, readiness, stream clients, snapshot health)

@@ -455,6 +455,37 @@ function buildWorkflowCommands(workflowId, options = {}) {
   return [];
 }
 
+function buildWorkflowPlan(workflowId, options = {}, safetyInput = {}, maxCommands = 20) {
+  const workflow = workflowById.get(workflowId);
+  if (!workflow) {
+    return {
+      ok: false,
+      error: "workflow not found",
+      workflow_id: workflowId,
+    };
+  }
+
+  const normalizedOptions = workflowDefaults(options);
+  const cappedMax = parseInteger(maxCommands, 20, 1, 100);
+  const commands = buildWorkflowCommands(workflow.id, normalizedOptions).slice(0, cappedMax);
+  if (commands.length === 0) {
+    return {
+      ok: false,
+      error: "workflow produced no commands",
+      workflow_id: workflow.id,
+    };
+  }
+
+  const guarded = applyCommandGuards(commands, safetyInput);
+  return {
+    ok: true,
+    workflow,
+    options: normalizedOptions,
+    guarded,
+    max_commands: cappedMax,
+  };
+}
+
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -1066,6 +1097,7 @@ app.get("/nova4d/capabilities", requireApiKey, (_req, res) => {
       ],
       workflow_endpoints: [
         "/nova4d/workflows",
+        "/nova4d/workflows/preview",
         "/nova4d/workflows/run",
       ],
     }),
@@ -1089,15 +1121,44 @@ app.get("/nova4d/workflows", requireApiKey, (_req, res) => {
   });
 });
 
-app.post("/nova4d/workflows/run", requireApiKey, (req, res) => {
+app.post("/nova4d/workflows/preview", requireApiKey, (req, res) => {
   const workflowId = String(req.body.workflow_id || "").trim();
   if (!workflowId) {
     return res.status(400).json({ status: "error", error: "workflow_id is required" });
   }
+  const options = req.body.options && typeof req.body.options === "object" && !Array.isArray(req.body.options)
+    ? req.body.options
+    : {};
+  const maxCommands = parseInteger(req.body.max_commands, 20, 1, 100);
+  const safety = normalizeSafetyPolicy(req.body.safety || {});
 
-  const workflow = workflowById.get(workflowId);
-  if (!workflow) {
-    return res.status(404).json({ status: "error", error: "workflow not found", workflow_id: workflowId });
+  const plan = buildWorkflowPlan(workflowId, options, safety, maxCommands);
+  if (!plan.ok) {
+    return res.status(plan.error === "workflow not found" ? 404 : 400).json({
+      status: "error",
+      error: plan.error,
+      workflow_id: workflowId,
+    });
+  }
+
+  return res.json({
+    status: "ok",
+    workflow: {
+      id: plan.workflow.id,
+      name: plan.workflow.name,
+      description: plan.workflow.description,
+      options: plan.options,
+    },
+    safety_policy: plan.guarded.policy,
+    commands: plan.guarded.allowed,
+    blocked_commands: plan.guarded.blocked,
+  });
+});
+
+app.post("/nova4d/workflows/run", requireApiKey, (req, res) => {
+  const workflowId = String(req.body.workflow_id || "").trim();
+  if (!workflowId) {
+    return res.status(400).json({ status: "error", error: "workflow_id is required" });
   }
 
   const options = req.body.options && typeof req.body.options === "object" && !Array.isArray(req.body.options)
@@ -1106,20 +1167,18 @@ app.post("/nova4d/workflows/run", requireApiKey, (req, res) => {
   const maxCommands = parseInteger(req.body.max_commands, 20, 1, 100);
   const safety = normalizeSafetyPolicy(req.body.safety || {});
   const clientHint = String(req.body.client_hint || "cinema4d-live").trim();
-  const requestedBy = String(req.body.requested_by || `workflow:${workflow.id}`).trim();
-
-  const commands = buildWorkflowCommands(workflow.id, options).slice(0, maxCommands);
-  if (commands.length === 0) {
-    return res.status(400).json({
+  const requestedBy = String(req.body.requested_by || `workflow:${workflowId}`).trim();
+  const plan = buildWorkflowPlan(workflowId, options, safety, maxCommands);
+  if (!plan.ok) {
+    return res.status(plan.error === "workflow not found" ? 404 : 400).json({
       status: "error",
-      error: "workflow produced no commands",
-      workflow_id: workflow.id,
+      error: plan.error,
+      workflow_id: workflowId,
     });
   }
 
-  const guarded = applyCommandGuards(commands, safety);
   const queued = queuePlannedCommands({
-    commands: guarded.allowed,
+    commands: plan.guarded.allowed,
     routeMap: commandRouteByPath,
     store,
     requestedBy,
@@ -1129,13 +1188,13 @@ app.post("/nova4d/workflows/run", requireApiKey, (req, res) => {
   return res.json({
     status: "ok",
     workflow: {
-      id: workflow.id,
-      name: workflow.name,
-      description: workflow.description,
-      options: workflowDefaults(options),
+      id: plan.workflow.id,
+      name: plan.workflow.name,
+      description: plan.workflow.description,
+      options: plan.options,
     },
-    safety_policy: guarded.policy,
-    blocked_commands: guarded.blocked,
+    safety_policy: plan.guarded.policy,
+    blocked_commands: plan.guarded.blocked,
     queued_count: queued.length,
     queued,
   });

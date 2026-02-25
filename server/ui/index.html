@@ -113,8 +113,47 @@
         <input id="deterministicWorkflow" type="checkbox" checked />
         <span>Run template as deterministic workflow (no AI planner)</span>
       </label>
+      <div class="grid workflow-grid">
+        <label>
+          Object Name
+          <input id="workflowObjectName" type="text" value="WorkflowCube" autocomplete="off" />
+        </label>
+        <label>
+          Cloner Name
+          <input id="workflowClonerName" type="text" value="WorkflowCloner" autocomplete="off" />
+        </label>
+        <label>
+          Material Name
+          <input id="workflowMaterialName" type="text" value="WorkflowRedshiftMat" autocomplete="off" />
+        </label>
+        <label>
+          Render Output
+          <input id="workflowRenderOutput" type="text" value="/tmp/nova4d-workflow-frame.png" autocomplete="off" />
+        </label>
+        <label>
+          Frame Start
+          <input id="workflowFrameStart" type="number" value="0" />
+        </label>
+        <label>
+          Frame End
+          <input id="workflowFrameEnd" type="number" value="30" />
+        </label>
+        <label>
+          Start Value
+          <input id="workflowStartValue" type="number" value="0" step="0.01" />
+        </label>
+        <label>
+          End Value
+          <input id="workflowEndValue" type="number" value="180" step="0.01" />
+        </label>
+        <label>
+          Render Frame
+          <input id="workflowRenderFrame" type="number" value="0" />
+        </label>
+      </div>
       <div class="inline-actions">
         <button id="loadTemplateButton" class="secondary">Load Template</button>
+        <button id="previewTemplateButton" class="secondary">Preview Template</button>
         <button id="runTemplateButton" class="secondary">Run Template</button>
       </div>
       <textarea id="promptInput" rows="5" placeholder="Example: Build a sci-fi cube field using a cloner, create a redshift material, animate x from frame 0 to 60, and render frame 30."></textarea>

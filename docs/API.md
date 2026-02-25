@@ -65,6 +65,30 @@ curl -s -X POST "${BASE_URL}/nova4d/workflows/run" \
 }' | jq .
 ```
 
+### Preview Deterministic Workflow
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/workflows/preview" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "workflow_id": "animate_render",
+  "options": {
+    "object_name": "ShotCube",
+    "frame_start": 0,
+    "frame_end": 48,
+    "start_value": 0,
+    "end_value": 220,
+    "render_frame": 24,
+    "render_output": "/tmp/shot-preview.png"
+  },
+  "safety": {
+    "mode": "balanced",
+    "allow_dangerous": false
+  }
+}' | jq .
+```
+
 ### Recent Commands
 
 ```bash
