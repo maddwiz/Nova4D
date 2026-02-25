@@ -131,6 +131,15 @@ function fallbackPlanFromText(input, maxCommands) {
   const wantAnimate = /animate|animation|key|move/.test(text);
   const wantRender = /render|frame|image|screenshot/.test(text);
   const wantBlenderImport = /blender|gltf import|import gltf/.test(text);
+  const wantSnapshot = /snapshot|introspect|inspect|list objects|what.?s in scene|scene summary/.test(text);
+
+  if (wantSnapshot) {
+    commands.push({
+      route: "/nova4d/introspection/scene",
+      payload: { max_objects: 300, max_materials: 120, include_paths: true },
+      reason: "Capture current scene context.",
+    });
+  }
 
   if (wantCube) {
     commands.push({

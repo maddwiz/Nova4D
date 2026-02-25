@@ -187,7 +187,7 @@ curl -s -X POST "${BASE_URL}/nova4d/export/upload-result" \
   -F "file=@/tmp/render-output.png" | jq .
 ```
 
-## Command Routes (61)
+## Command Routes (62)
 
 All routes below queue commands for the Cinema 4D worker/plugin.
 
@@ -971,6 +971,21 @@ curl -s -X POST "${BASE_URL}/nova4d/headless/c4dpy-script" \
 }' | jq .
 ```
 
+### Introspection (1)
+
+#### POST /nova4d/introspection/scene
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/introspection/scene" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "max_objects": 300,
+  "max_materials": 120,
+  "include_paths": true
+}' | jq .
+```
+
 ### Test (1)
 
 #### POST /nova4d/test/ping
@@ -1009,6 +1024,10 @@ curl -s -X POST "${BASE_URL}/nova4d/assistant/plan" \
   "provider": {
     "kind": "builtin"
   },
+  "safety": {
+    "mode": "balanced",
+    "allow_dangerous": false
+  },
   "max_commands": 10
 }' | jq .
 ```
@@ -1024,6 +1043,10 @@ curl -s -X POST "${BASE_URL}/nova4d/assistant/run" \
   "provider": {
     "kind": "builtin"
   },
+  "safety": {
+    "mode": "balanced",
+    "allow_dangerous": false
+  },
   "max_commands": 10
 }' | jq .
 ```
@@ -1036,6 +1059,9 @@ curl -s -X POST "${BASE_URL}/nova4d/assistant/queue" \
   -H 'Content-Type: application/json' \
   -d '{
   "requested_by": "assistant:manual",
+  "safety": {
+    "mode": "strict"
+  },
   "commands": [
     {
       "route": "/nova4d/scene/spawn-object",
@@ -1043,6 +1069,25 @@ curl -s -X POST "${BASE_URL}/nova4d/assistant/queue" \
     }
   ]
 }' | jq .
+```
+
+### POST /nova4d/introspection/request
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/introspection/request" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "max_objects": 300,
+  "max_materials": 120,
+  "include_paths": true
+}' | jq .
+```
+
+### GET /nova4d/introspection/latest
+
+```bash
+curl -s "${BASE_URL}/nova4d/introspection/latest" "${AUTH_HEADER[@]}" | jq .
 ```
 
 Studio UI:

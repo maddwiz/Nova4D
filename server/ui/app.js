@@ -9,6 +9,8 @@ const nodes = {
   providerModel: document.getElementById("providerModel"),
   providerApiKey: document.getElementById("providerApiKey"),
   maxCommands: document.getElementById("maxCommands"),
+  safetyMode: document.getElementById("safetyMode"),
+  allowDangerous: document.getElementById("allowDangerous"),
   promptInput: document.getElementById("promptInput"),
   voiceStatus: document.getElementById("voiceStatus"),
   planSummary: document.getElementById("planSummary"),
@@ -20,6 +22,7 @@ const nodes = {
   loadRecentButton: document.getElementById("loadRecentButton"),
   voiceStart: document.getElementById("voiceStart"),
   voiceStop: document.getElementById("voiceStop"),
+  snapshotButton: document.getElementById("snapshotButton"),
   planButton: document.getElementById("planButton"),
   runButton: document.getElementById("runButton"),
 };
@@ -126,6 +129,13 @@ function providerPayload() {
   };
 }
 
+function safetyPayload() {
+  return {
+    mode: nodes.safetyMode.value || "balanced",
+    allow_dangerous: Boolean(nodes.allowDangerous.checked),
+  };
+}
+
 function applyProviderDefaults() {
   const kind = nodes.providerKind.value;
   const defaults = providerDefaults[kind] || providerDefaults.builtin;
@@ -140,28 +150,45 @@ function applyProviderDefaults() {
 function renderPlan(planResponse) {
   lastPlan = planResponse;
   const commands = Array.isArray(planResponse.plan?.commands) ? planResponse.plan.commands : [];
-  nodes.planSummary.textContent = `${planResponse.plan?.summary || "No summary."} (${commands.length} command${commands.length === 1 ? "" : "s"})`;
-  nodes.planCommands.innerHTML = commands.map((command) => {
+  const blocked = Array.isArray(planResponse.blocked_commands) ? planResponse.blocked_commands : [];
+  nodes.planSummary.textContent = `${planResponse.plan?.summary || "No summary."} (${commands.length} command${commands.length === 1 ? "" : "s"})${blocked.length ? ` | blocked ${blocked.length}` : ""}`;
+
+  const commandRows = commands.map((command) => {
     const route = escapeHtml(command.route || "");
     const reason = escapeHtml(command.reason || "");
     const payload = escapeHtml(JSON.stringify(command.payload || {}));
     return `<li><div><span class="code-inline">${route}</span></div><div class="hint">${reason}</div><div class="mono small">${payload}</div></li>`;
-  }).join("");
-  if (!commands.length) {
+  });
+  const blockedRows = blocked.map((command) => {
+    const route = escapeHtml(command.route || "");
+    const reason = escapeHtml(command.reason || "blocked");
+    return `<li><div><span class="code-inline">${route}</span></div><div class="status-warn">${reason}</div></li>`;
+  });
+  const rows = commandRows.concat(blockedRows);
+  nodes.planCommands.innerHTML = rows.join("");
+  if (!rows.length) {
     nodes.planCommands.innerHTML = "<li class='hint'>No commands generated.</li>";
   }
 }
 
 function renderRun(runResponse) {
   const queued = Array.isArray(runResponse.queued) ? runResponse.queued : [];
-  nodes.runSummary.textContent = `${runResponse.plan?.summary || "Run complete."} | queued ${queued.length}`;
-  nodes.queuedCommands.innerHTML = queued.map((command) => {
+  const blocked = Array.isArray(runResponse.blocked_commands) ? runResponse.blocked_commands : [];
+  nodes.runSummary.textContent = `${runResponse.plan?.summary || "Run complete."} | queued ${queued.length}${blocked.length ? ` | blocked ${blocked.length}` : ""}`;
+  const queuedRows = queued.map((command) => {
     const route = escapeHtml(command.route || "");
     const id = escapeHtml(command.id || "");
     const action = escapeHtml(command.action || "");
     return `<li><div><span class="code-inline">${route}</span></div><div class="mono small">${action} | ${id}</div></li>`;
-  }).join("");
-  if (!queued.length) {
+  });
+  const blockedRows = blocked.map((command) => {
+    const route = escapeHtml(command.route || "");
+    const reason = escapeHtml(command.reason || "blocked");
+    return `<li><div><span class="code-inline">${route}</span></div><div class="status-warn">${reason}</div></li>`;
+  });
+  const rows = queuedRows.concat(blockedRows);
+  nodes.queuedCommands.innerHTML = rows.join("");
+  if (!rows.length) {
     nodes.queuedCommands.innerHTML = "<li class='hint'>No commands queued.</li>";
   }
 }
@@ -181,6 +208,7 @@ async function planOnly() {
       body: JSON.stringify({
         input,
         provider: providerPayload(),
+        safety: safetyPayload(),
         max_commands: Number(nodes.maxCommands.value || 10),
       }),
     });
@@ -205,6 +233,7 @@ async function runPlan() {
       body: JSON.stringify({
         input,
         provider: providerPayload(),
+        safety: safetyPayload(),
         max_commands: Number(nodes.maxCommands.value || 10),
       }),
     });
@@ -213,6 +242,46 @@ async function runPlan() {
     await loadRecent();
   } catch (err) {
     nodes.runSummary.textContent = `Run failed: ${err.message}`;
+  }
+}
+
+async function waitForCommand(commandId, timeoutMs = 25000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const response = await api(`/nova4d/commands/${encodeURIComponent(commandId)}`);
+    const command = response.command || {};
+    if (["succeeded", "failed", "canceled"].includes(command.status)) {
+      return command;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
+  throw new Error("timed out waiting for command result");
+}
+
+async function captureSnapshot() {
+  nodes.runSummary.textContent = "Requesting scene snapshot...";
+  try {
+    const queued = await api("/nova4d/introspection/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ max_objects: 300, max_materials: 120, include_paths: true }),
+    });
+    const commandId = queued.command_id;
+    if (!commandId) {
+      throw new Error("snapshot command did not return command_id");
+    }
+    const final = await waitForCommand(commandId);
+    if (final.status !== "succeeded") {
+      throw new Error(final.error || `snapshot ${final.status}`);
+    }
+
+    const latest = await api("/nova4d/introspection/latest");
+    const counts = latest.result?.counts || {};
+    nodes.runSummary.textContent = `Snapshot captured | objects ${counts.objects_total ?? 0} | materials ${counts.materials_total ?? 0}`;
+    nodes.queuedCommands.innerHTML = `<li><div><span class="code-inline">/nova4d/introspection/scene</span></div><div class="mono small">${escapeHtml(commandId)}</div></li>`;
+    await loadRecent();
+  } catch (err) {
+    nodes.runSummary.textContent = `Snapshot failed: ${err.message}`;
   }
 }
 
@@ -272,11 +341,14 @@ nodes.providerKind.addEventListener("change", () => {
 
 nodes.refreshButton.addEventListener("click", loadHealth);
 nodes.loadRecentButton.addEventListener("click", loadRecent);
+nodes.snapshotButton.addEventListener("click", captureSnapshot);
 nodes.planButton.addEventListener("click", planOnly);
 nodes.runButton.addEventListener("click", runPlan);
 
 (async function init() {
   nodes.providerKind.value = "builtin";
+  nodes.safetyMode.value = "balanced";
+  nodes.allowDangerous.checked = false;
   applyProviderDefaults();
   initVoice();
   await loadHealth();

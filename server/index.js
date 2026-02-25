@@ -14,6 +14,13 @@ const {
   planCommands,
   queuePlannedCommands,
 } = require("./assistant_engine");
+const {
+  getRisk,
+  validatePayload,
+  buildCatalog,
+  filterCommandsBySafety,
+  normalizeSafetyPolicy,
+} = require("./command_catalog");
 
 const VERSION = "1.0.0";
 const PRODUCT = "Nova4D";
@@ -134,13 +141,26 @@ function requireApiKey(req, res, next) {
 app.use(requireRateLimit);
 
 function queueCommand(req, res, spec, extraPayload = {}) {
-  const priority = parseInteger(req.body.priority, 0, -100, 100);
-  const metadata = Object.assign({}, req.body.metadata || {}, {
+  if (!spec) {
+    return res.status(404).json({ status: "error", error: "route spec not found" });
+  }
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+  const priority = parseInteger(body.priority, 0, -100, 100);
+  const metadata = Object.assign({}, body.metadata || {}, {
     requested_by: req.get("X-Request-By") || "api",
-    client_hint: req.body.client_hint || null,
+    client_hint: body.client_hint || null,
   });
 
-  const payload = Object.assign({}, req.body, extraPayload);
+  const payload = Object.assign({}, body, extraPayload);
+  const validation = validateQueuedPayload(spec.path, payload);
+  if (!validation.ok) {
+    return res.status(400).json({
+      status: "error",
+      error: "payload validation failed",
+      route: spec.path,
+      details: validation.errors,
+    });
+  }
   const command = store.enqueue({
     route: spec.path,
     category: spec.category,
@@ -232,10 +252,17 @@ const commandRoutes = [
   { path: "/nova4d/headless/render-queue", category: "headless", action: "headless-render-queue" },
   { path: "/nova4d/headless/c4dpy-script", category: "headless", action: "run-c4dpy-script" },
 
+  { path: "/nova4d/introspection/scene", category: "introspection", action: "introspect-scene" },
+
   { path: "/nova4d/test/ping", category: "test", action: "test-ping" },
 ];
 
 const commandRouteByPath = new Map(commandRoutes.map((spec) => [spec.path, spec]));
+const routeCatalog = buildCatalog(commandRoutes);
+
+function validateQueuedPayload(routePath, payload) {
+  return validatePayload(routePath, payload || {});
+}
 
 const headlessJobs = new Map();
 
@@ -279,6 +306,42 @@ function toPublicProvider(provider) {
   };
 }
 
+function sanitizeIncomingCommands(rows, maxCommands) {
+  return (rows || []).slice(0, maxCommands).map((item) => ({
+    route: String(item.route || "").trim(),
+    payload: item.payload && typeof item.payload === "object" && !Array.isArray(item.payload) ? item.payload : {},
+    reason: String(item.reason || "").slice(0, 800),
+    priority: parseInteger(item.priority, 0, -100, 100),
+  })).filter((item) => commandRouteByPath.has(item.route));
+}
+
+function applyCommandGuards(commands, safetyInput) {
+  const rejectedByValidation = [];
+  const valid = [];
+
+  commands.forEach((command) => {
+    const validation = validateQueuedPayload(command.route, command.payload);
+    if (!validation.ok) {
+      rejectedByValidation.push({
+        route: command.route,
+        reason: "payload validation failed",
+        details: validation.errors,
+        payload: command.payload || {},
+      });
+      return;
+    }
+    valid.push(command);
+  });
+
+  const safetyResult = filterCommandsBySafety(valid, getRisk, safetyInput);
+
+  return {
+    policy: safetyResult.policy || normalizeSafetyPolicy(safetyInput || {}),
+    allowed: safetyResult.allowed || [],
+    blocked: (safetyResult.blocked || []).concat(rejectedByValidation),
+  };
+}
+
 app.get("/nova4d/health", (_req, res) => {
   res.json({
     status: "ok",
@@ -294,13 +357,52 @@ app.get("/nova4d/health", (_req, res) => {
 });
 
 app.get("/nova4d/capabilities", requireApiKey, (_req, res) => {
+  const summary = minimalCapabilities(commandRoutes);
   res.json({
     status: "ok",
     product: PRODUCT,
     service: SERVICE,
     version: VERSION,
-    capabilities: minimalCapabilities(commandRoutes),
-    routes: commandRoutes,
+    capabilities: Object.assign({}, summary, {
+      risk_levels: ["safe", "moderate", "dangerous"],
+    }),
+    routes: routeCatalog,
+  });
+});
+
+app.get("/nova4d/routes", requireApiKey, (_req, res) => {
+  res.json({
+    status: "ok",
+    count: routeCatalog.length,
+    routes: routeCatalog,
+  });
+});
+
+app.post("/nova4d/introspection/request", requireApiKey, (req, res) => {
+  const spec = commandRouteByPath.get("/nova4d/introspection/scene");
+  return queueCommand(req, res, spec);
+});
+
+app.get("/nova4d/introspection/latest", requireApiKey, (req, res) => {
+  const limit = parseInteger(req.query.limit, 200, 1, 1000);
+  const recent = store.listRecent(limit);
+  const found = recent.find((command) => (
+    command.action === "introspect-scene" &&
+    command.status === "succeeded" &&
+    command.result
+  ));
+  if (!found) {
+    return res.status(404).json({
+      status: "error",
+      error: "no successful introspection snapshot found",
+    });
+  }
+  return res.json({
+    status: "ok",
+    command_id: found.id,
+    captured_at: found.completed_at || found.updated_at,
+    delivered_to: found.delivered_to,
+    result: found.result,
   });
 });
 
@@ -316,6 +418,11 @@ app.get("/nova4d/assistant/providers", requireApiKey, (_req, res) => {
       "anthropic",
       "openai-compatible",
     ],
+    supported_safety_modes: [
+      "strict",
+      "balanced",
+      "unrestricted",
+    ],
   });
 });
 
@@ -327,6 +434,7 @@ app.post("/nova4d/assistant/plan", requireApiKey, async (req, res) => {
 
   const provider = normalizeProvider(req.body.provider || {}, process.env);
   const maxCommands = parseInteger(req.body.max_commands, 10, 1, 30);
+  const safety = normalizeSafetyPolicy(req.body.safety || {});
 
   let warning = null;
   let plan;
@@ -350,15 +458,20 @@ app.post("/nova4d/assistant/plan", requireApiKey, async (req, res) => {
     });
   }
 
+  const guarded = applyCommandGuards(plan.commands, safety);
+
   return res.json({
     status: "ok",
     warning,
     provider: toPublicProvider(provider),
+    safety_policy: guarded.policy,
     plan: {
       mode: plan.mode,
       summary: plan.summary,
-      commands: plan.commands,
+      commands: guarded.allowed,
     },
+    blocked_commands: guarded.blocked,
+    valid_command_count: guarded.allowed.length,
   });
 });
 
@@ -371,6 +484,7 @@ app.post("/nova4d/assistant/run", requireApiKey, async (req, res) => {
   const provider = normalizeProvider(req.body.provider || {}, process.env);
   const maxCommands = parseInteger(req.body.max_commands, 10, 1, 30);
   const clientHint = String(req.body.client_hint || "cinema4d-live").trim();
+  const safety = normalizeSafetyPolicy(req.body.safety || {});
 
   let warning = null;
   let plan;
@@ -394,8 +508,10 @@ app.post("/nova4d/assistant/run", requireApiKey, async (req, res) => {
     });
   }
 
+  const guarded = applyCommandGuards(plan.commands, safety);
+
   const queued = queuePlannedCommands({
-    commands: plan.commands,
+    commands: guarded.allowed,
     routeMap: commandRouteByPath,
     store,
     requestedBy: `assistant:${plan.mode}`,
@@ -406,11 +522,13 @@ app.post("/nova4d/assistant/run", requireApiKey, async (req, res) => {
     status: "ok",
     warning,
     provider: toPublicProvider(provider),
+    safety_policy: guarded.policy,
     plan: {
       mode: plan.mode,
       summary: plan.summary,
-      commands: plan.commands,
+      commands: guarded.allowed,
     },
+    blocked_commands: guarded.blocked,
     queued_count: queued.length,
     queued,
   });
@@ -420,24 +538,20 @@ app.post("/nova4d/assistant/queue", requireApiKey, (req, res) => {
   const requestedBy = String(req.body.requested_by || "assistant:manual").trim();
   const clientHint = String(req.body.client_hint || "cinema4d-live").trim();
   const maxCommands = parseInteger(req.body.max_commands, 20, 1, 100);
+  const safety = normalizeSafetyPolicy(req.body.safety || {});
   const incoming = Array.isArray(req.body.commands) ? req.body.commands : [];
   if (incoming.length === 0) {
     return res.status(400).json({ status: "error", error: "commands[] is required" });
   }
 
-  const commands = incoming.slice(0, maxCommands).map((item) => ({
-    route: String(item.route || "").trim(),
-    payload: item.payload && typeof item.payload === "object" && !Array.isArray(item.payload) ? item.payload : {},
-    reason: String(item.reason || "").slice(0, 800),
-    priority: parseInteger(item.priority, 0, -100, 100),
-  })).filter((item) => commandRouteByPath.has(item.route));
-
-  if (commands.length === 0) {
+  const sanitized = sanitizeIncomingCommands(incoming, maxCommands);
+  if (sanitized.length === 0) {
     return res.status(400).json({ status: "error", error: "no valid command routes in commands[]" });
   }
 
+  const guarded = applyCommandGuards(sanitized, safety);
   const queued = queuePlannedCommands({
-    commands,
+    commands: guarded.allowed,
     routeMap: commandRouteByPath,
     store,
     requestedBy,
@@ -446,6 +560,8 @@ app.post("/nova4d/assistant/queue", requireApiKey, (req, res) => {
 
   return res.json({
     status: "ok",
+    safety_policy: guarded.policy,
+    blocked_commands: guarded.blocked,
     queued_count: queued.length,
     queued,
   });
@@ -473,10 +589,23 @@ app.post("/nova4d/command", requireApiKey, (req, res) => {
   if (!route || !action) {
     return res.status(400).json({ status: "error", error: "route and action are required" });
   }
+  const routeSpec = commandRouteByPath.get(String(route));
+  if (routeSpec) {
+    const validation = validateQueuedPayload(routeSpec.path, payload || {});
+    if (!validation.ok) {
+      return res.status(400).json({
+        status: "error",
+        error: "payload validation failed",
+        route: routeSpec.path,
+        details: validation.errors,
+      });
+    }
+  }
+
   const command = store.enqueue({
     route,
-    category: category || "custom",
-    action,
+    category: category || (routeSpec ? routeSpec.category : "custom"),
+    action: routeSpec ? routeSpec.action : action,
     payload: payload || {},
     priority: parseInteger(req.body.priority, 0, -100, 100),
     metadata: req.body.metadata || {},
@@ -489,16 +618,32 @@ app.post("/nova4d/commands/batch", requireApiKey, (req, res) => {
   if (commands.length === 0) {
     return res.status(400).json({ status: "error", error: "commands[] is required" });
   }
-  const queued = store.enqueueBatch(
-    commands.map((cmd) => ({
-      route: cmd.route || "/nova4d/custom",
-      category: cmd.category || "custom",
-      action: cmd.action || "command",
-      payload: cmd.payload || {},
+  const normalized = [];
+  for (const cmd of commands) {
+    const route = cmd.route || "/nova4d/custom";
+    const routeSpec = commandRouteByPath.get(String(route));
+    const payload = cmd.payload || {};
+    if (routeSpec) {
+      const validation = validateQueuedPayload(routeSpec.path, payload);
+      if (!validation.ok) {
+        return res.status(400).json({
+          status: "error",
+          error: "payload validation failed",
+          route: routeSpec.path,
+          details: validation.errors,
+        });
+      }
+    }
+    normalized.push({
+      route,
+      category: cmd.category || (routeSpec ? routeSpec.category : "custom"),
+      action: routeSpec ? routeSpec.action : (cmd.action || "command"),
+      payload,
       priority: parseInteger(cmd.priority, 0, -100, 100),
       metadata: cmd.metadata || {},
-    }))
-  );
+    });
+  }
+  const queued = store.enqueueBatch(normalized);
   return res.json({
     status: "queued",
     count: queued.length,

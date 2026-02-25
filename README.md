@@ -68,6 +68,8 @@ From the UI you can:
 - Connect AI provider settings (Builtin/OpenAI/OpenRouter/Anthropic/OpenAI-compatible)
 - Dictate prompts with browser voice input
 - Generate plans (`/nova4d/assistant/plan`) and run them (`/nova4d/assistant/run`)
+- Set safety mode (`strict`, `balanced`, `unrestricted`) with dangerous-action guardrails
+- Capture live scene snapshots via `/nova4d/introspection/scene`
 - Inspect recent command execution in one place
 
 Detailed guide: `docs/STUDIO_UI.md`

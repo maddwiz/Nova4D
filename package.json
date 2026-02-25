@@ -6,7 +6,7 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/assistant_engine.js && node --check server/command_store.js && node --check server/ui/app.js && node --check extensions/openclaw/cinema4d-bridge/index.js && node --check examples/mock/mock_c4d_client.js",
+    "check": "node --check server/index.js && node --check server/assistant_engine.js && node --check server/command_catalog.js && node --check server/command_store.js && node --check server/ui/app.js && node --check extensions/openclaw/cinema4d-bridge/index.js && node --check examples/mock/mock_c4d_client.js",
     "mock:c4d": "node examples/mock/mock_c4d_client.js",
     "package": "bash scripts/package_release.sh v1.0.0"
   },

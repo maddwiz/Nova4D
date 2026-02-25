@@ -830,6 +830,77 @@ def _new_scene(doc, _payload):
     return {"scene": "new"}
 
 
+def _object_path(obj):
+    names = []
+    current = obj
+    while current:
+        names.append(current.GetName())
+        current = current.GetUp()
+    names.reverse()
+    return "/".join(names)
+
+
+def _introspect_scene(doc, payload):
+    if not doc:
+        raise RuntimeError("no active document")
+
+    max_objects = int(payload.get("max_objects", 500))
+    max_materials = int(payload.get("max_materials", 300))
+    include_paths = bool(payload.get("include_paths", True))
+    max_objects = max(1, min(max_objects, 5000))
+    max_materials = max(1, min(max_materials, 2000))
+
+    objects = []
+    total_objects = 0
+    for obj in _iter_objects(doc.GetFirstObject()):
+        total_objects += 1
+        if len(objects) >= max_objects:
+            continue
+        row = {
+            "name": obj.GetName(),
+            "type_id": int(obj.GetType()),
+            "selected": bool(obj.GetBit(c4d.BIT_ACTIVE)),
+        }
+        if include_paths:
+            row["path"] = _object_path(obj)
+        objects.append(row)
+
+    materials = []
+    total_materials = 0
+    material = doc.GetFirstMaterial()
+    while material:
+        total_materials += 1
+        if len(materials) < max_materials:
+            materials.append({
+                "name": material.GetName(),
+            })
+        material = material.GetNext()
+
+    render_data = doc.GetActiveRenderData()
+    render_engine = None
+    if render_data:
+        try:
+            render_engine = int(render_data[c4d.RDATA_RENDERENGINE])
+        except Exception:
+            render_engine = None
+
+    active_obj = doc.GetActiveObject()
+    return {
+        "document_name": doc.GetDocumentName(),
+        "fps": int(doc.GetFps()),
+        "render_engine_id": render_engine,
+        "counts": {
+            "objects_total": total_objects,
+            "materials_total": total_materials,
+            "objects_returned": len(objects),
+            "materials_returned": len(materials),
+        },
+        "active_object": active_obj.GetName() if active_obj else None,
+        "objects": objects,
+        "materials": materials,
+    }
+
+
 class Nova4DEngine:
     def __init__(self):
         self.client = BridgeClient()
@@ -893,6 +964,7 @@ class Nova4DEngine:
             "save-scene": _save_scene,
             "open-scene": _open_scene,
             "new-scene": _new_scene,
+            "introspect-scene": _introspect_scene,
         }
 
         self._ack_actions = {

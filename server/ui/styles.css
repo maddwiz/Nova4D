@@ -107,6 +107,25 @@ button {
   font: inherit;
 }
 
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toggle-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.toggle-row span {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
 textarea {
   resize: vertical;
   min-height: 105px;

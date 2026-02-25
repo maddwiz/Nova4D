@@ -58,6 +58,18 @@
           Max commands per run
           <input id="maxCommands" type="number" min="1" max="30" value="10" />
         </label>
+        <label>
+          Safety mode
+          <select id="safetyMode">
+            <option value="balanced">Balanced (recommended)</option>
+            <option value="strict">Strict (safe-only)</option>
+            <option value="unrestricted">Unrestricted</option>
+          </select>
+        </label>
+        <label class="toggle-row">
+          <input id="allowDangerous" type="checkbox" />
+          <span>Allow dangerous commands</span>
+        </label>
       </article>
     </section>
 
@@ -67,6 +79,7 @@
       <div class="inline-actions wrap">
         <button id="voiceStart" class="secondary">Start Voice</button>
         <button id="voiceStop" class="secondary">Stop Voice</button>
+        <button id="snapshotButton" class="secondary">Scene Snapshot</button>
         <button id="planButton" class="secondary">Plan Only</button>
         <button id="runButton">Run In Cinema 4D</button>
       </div>
