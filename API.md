@@ -19,6 +19,18 @@ if [ -n "$API_KEY" ]; then AUTH_HEADER=(-H "X-API-Key: $API_KEY"); fi
 curl -s "${BASE_URL}/nova4d/health" "${AUTH_HEADER[@]}" | jq .
 ```
 
+### System Preflight
+
+```bash
+curl -s "${BASE_URL}/nova4d/system/preflight" "${AUTH_HEADER[@]}" | jq .
+```
+
+With worker probe:
+
+```bash
+curl -s "${BASE_URL}/nova4d/system/preflight?probe_worker=true&probe_timeout_ms=10000" "${AUTH_HEADER[@]}" | jq .
+```
+
 ### Queue Stats
 
 ```bash

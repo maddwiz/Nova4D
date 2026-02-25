@@ -69,6 +69,7 @@ From the UI you can:
 - Test provider connectivity before planning/running
 - Use one-click quick workflow templates for common tasks (cube, cloner, material, animate/render)
 - Dictate prompts with browser voice input
+- Run one-click preflight diagnostics (paths, plugin presence, worker probe)
 - Generate plans (`/nova4d/assistant/plan`) and run them (`/nova4d/assistant/run`)
 - Queue the exact last-reviewed plan (`/nova4d/assistant/queue`) without re-planning
 - Set safety mode (`strict`, `balanced`, `unrestricted`) with dangerous-action guardrails

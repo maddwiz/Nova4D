@@ -32,6 +32,12 @@
           <span>Live command stream</span>
         </label>
         <div id="streamStatus" class="hint">Live stream offline.</div>
+        <div class="inline-actions">
+          <button id="preflightButton" class="secondary">Run Preflight</button>
+          <button id="preflightProbeButton" class="secondary">Preflight + Worker Probe</button>
+        </div>
+        <div id="preflightSummary" class="hint">Preflight not run in this session.</div>
+        <ul id="preflightChecks" class="event-feed"></ul>
         <pre id="bridgeInfo" class="mono small">-</pre>
       </article>
 

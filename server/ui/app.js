@@ -26,6 +26,10 @@ const nodes = {
   liveStreamEnabled: document.getElementById("liveStreamEnabled"),
   streamStatus: document.getElementById("streamStatus"),
   streamEvents: document.getElementById("streamEvents"),
+  preflightButton: document.getElementById("preflightButton"),
+  preflightProbeButton: document.getElementById("preflightProbeButton"),
+  preflightSummary: document.getElementById("preflightSummary"),
+  preflightChecks: document.getElementById("preflightChecks"),
   refreshButton: document.getElementById("refreshButton"),
   loadRecentButton: document.getElementById("loadRecentButton"),
   voiceStart: document.getElementById("voiceStart"),
@@ -203,6 +207,66 @@ function setHealthBadge(ok, text) {
 function setStreamStatus(text, className = "hint") {
   nodes.streamStatus.textContent = text;
   nodes.streamStatus.className = className;
+}
+
+function classForStatus(status) {
+  if (status === "pass") {
+    return "status-ok";
+  }
+  if (status === "warn") {
+    return "status-warn";
+  }
+  if (status === "fail") {
+    return "status-error";
+  }
+  return "hint";
+}
+
+function renderPreflight(response) {
+  const checks = Array.isArray(response.checks) ? response.checks : [];
+  const summary = response.summary || {};
+  const overall = String(response.overall_status || "unknown").toLowerCase();
+  const ready = response.ready_for_local_use ? "ready" : "not ready";
+  const overallClass = classForStatus(overall);
+  nodes.preflightSummary.className = overallClass;
+  nodes.preflightSummary.textContent =
+    `Preflight ${overall.toUpperCase()} | ${ready} | pass ${summary.pass || 0} warn ${summary.warn || 0} fail ${summary.fail || 0}`;
+
+  if (!checks.length) {
+    nodes.preflightChecks.innerHTML = "<li class='hint'>No checks returned.</li>";
+    return;
+  }
+
+  nodes.preflightChecks.innerHTML = checks.map((check) => {
+    const status = String(check.status || "unknown").toLowerCase();
+    const statusClass = classForStatus(status);
+    const statusLabel = escapeHtml(status.toUpperCase());
+    const name = escapeHtml(check.name || check.id || "check");
+    const message = escapeHtml(check.message || "");
+    const required = check.required === false ? "optional" : "required";
+    const details = check.details ? escapeHtml(JSON.stringify(check.details)) : "";
+    return `<li>
+      <div><span class="${statusClass}">[${statusLabel}]</span> ${name} <span class="hint">(${required})</span></div>
+      <div class="hint">${message}</div>
+      ${details ? `<div class="mono small">${details}</div>` : ""}
+    </li>`;
+  }).join("");
+}
+
+async function runPreflight(probeWorker = false) {
+  nodes.preflightSummary.className = "status-warn";
+  nodes.preflightSummary.textContent = probeWorker
+    ? "Running preflight with worker probe..."
+    : "Running preflight...";
+  try {
+    const query = probeWorker ? "?probe_worker=true" : "";
+    const response = await api(`/nova4d/system/preflight${query}`);
+    renderPreflight(response);
+  } catch (err) {
+    nodes.preflightSummary.className = "status-error";
+    nodes.preflightSummary.textContent = `Preflight failed: ${err.message}`;
+    nodes.preflightChecks.innerHTML = "";
+  }
 }
 
 function parseEventData(raw) {
@@ -742,6 +806,8 @@ nodes.bridgeApiKey.addEventListener("change", () => {
 
 nodes.refreshButton.addEventListener("click", loadHealth);
 nodes.loadRecentButton.addEventListener("click", loadRecent);
+nodes.preflightButton.addEventListener("click", async () => runPreflight(false));
+nodes.preflightProbeButton.addEventListener("click", async () => runPreflight(true));
 nodes.snapshotButton.addEventListener("click", captureSnapshot);
 nodes.planButton.addEventListener("click", planOnly);
 nodes.runButton.addEventListener("click", runPlan);
@@ -783,6 +849,7 @@ window.addEventListener("beforeunload", () => {
   nodes.templateSelect.value = "none";
   nodes.refreshSceneContext.disabled = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
+  nodes.preflightChecks.innerHTML = "<li class='hint'>Run preflight to validate local setup.</li>";
   applyStoredSettings(loadStoredSettings());
   applyProviderDefaults();
   setProviderStatus("Provider not tested in this session.", "hint");
