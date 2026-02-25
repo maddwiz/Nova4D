@@ -30,6 +30,9 @@ const nodes = {
   preflightProbeButton: document.getElementById("preflightProbeButton"),
   preflightSummary: document.getElementById("preflightSummary"),
   preflightChecks: document.getElementById("preflightChecks"),
+  systemStatusButton: document.getElementById("systemStatusButton"),
+  systemStatusSummary: document.getElementById("systemStatusSummary"),
+  systemStatusList: document.getElementById("systemStatusList"),
   refreshButton: document.getElementById("refreshButton"),
   loadRecentButton: document.getElementById("loadRecentButton"),
   voiceStart: document.getElementById("voiceStart"),
@@ -223,6 +226,75 @@ function classForStatus(status) {
   return "hint";
 }
 
+function formatAgeMs(inputMs) {
+  const ms = Number(inputMs);
+  if (!Number.isFinite(ms) || ms < 0) {
+    return "unknown";
+  }
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ${minutes % 60}m`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
+function renderSystemStatus(response) {
+  const preflight = response.preflight || {};
+  const preflightStatus = String(preflight.overall_status || "warn").toLowerCase();
+  const preflightClass = classForStatus(preflightStatus);
+  const ready = preflight.ready_for_local_use ? "ready" : "not ready";
+  const summary = preflight.summary || {};
+  nodes.systemStatusSummary.className = preflightClass;
+  nodes.systemStatusSummary.textContent =
+    `System ${preflightStatus.toUpperCase()} | ${ready} | pass ${summary.pass || 0} warn ${summary.warn || 0} fail ${summary.fail || 0}`;
+
+  const queue = response.queue || {};
+  const latestSnapshot = response.latest_snapshot || {};
+  const worker = response.recent_worker_activity || {};
+  const streamClients = response.stream_clients || {};
+  const clients = Array.isArray(streamClients.clients) ? streamClients.clients : [];
+  const clientPreview = clients.slice(0, 5).map((item) => String(item.client_id || "unknown"));
+  const clientText = clientPreview.length ? clientPreview.join(", ") : "none";
+
+  const snapshotText = latestSnapshot.available
+    ? `yes | age ${formatAgeMs(latestSnapshot.age_ms)} | objects ${latestSnapshot.summary?.objects_total ?? 0} | materials ${latestSnapshot.summary?.materials_total ?? 0}`
+    : "no";
+  const workerText = worker.available
+    ? `${worker.route || "unknown"} | ${worker.status || "unknown"} | age ${formatAgeMs(worker.age_ms)}`
+    : "no recent worker activity";
+
+  const rows = [
+    { label: "Queue", value: `pending ${queue.pending_count || 0} | total ${queue.total_commands || 0}` },
+    { label: "Stream Clients", value: `${streamClients.count || 0} | ${clientText}` },
+    { label: "Latest Snapshot", value: snapshotText },
+    { label: "Recent Worker", value: workerText },
+  ];
+
+  nodes.systemStatusList.innerHTML = rows.map((row) => (
+    `<li><div>${escapeHtml(row.label)}: <span class="mono small">${escapeHtml(row.value)}</span></div></li>`
+  )).join("");
+}
+
+async function loadSystemStatus() {
+  try {
+    const response = await api("/nova4d/system/status");
+    renderSystemStatus(response);
+  } catch (err) {
+    nodes.systemStatusSummary.className = "status-error";
+    nodes.systemStatusSummary.textContent = `System status failed: ${err.message}`;
+    nodes.systemStatusList.innerHTML = "";
+  }
+}
+
 function renderPreflight(response) {
   const checks = Array.isArray(response.checks) ? response.checks : [];
   const summary = response.summary || {};
@@ -263,6 +335,7 @@ async function runPreflight(probeWorker = false) {
     const query = probeWorker ? "?probe_worker=true" : "";
     const response = await api(`/nova4d/system/preflight${query}`);
     renderPreflight(response);
+    await loadSystemStatus();
   } catch (err) {
     nodes.preflightSummary.className = "status-error";
     nodes.preflightSummary.textContent = `Preflight failed: ${err.message}`;
@@ -315,6 +388,7 @@ async function refreshFromStream() {
     liveStreamRefreshTimer = null;
     await loadHealth();
     await loadRecent();
+    await loadSystemStatus();
   }, 250);
 }
 
@@ -532,6 +606,7 @@ async function handleRecentTableAction(event) {
     }
     await loadRecent();
     await loadHealth();
+    await loadSystemStatus();
   } catch (err) {
     nodes.runSummary.textContent = `Command action failed: ${err.message}`;
   } finally {
@@ -888,10 +963,12 @@ nodes.bridgeApiKey.addEventListener("change", () => {
   if (nodes.liveStreamEnabled.checked) {
     connectLiveStream();
   }
+  loadSystemStatus().catch(() => {});
 });
 
 nodes.refreshButton.addEventListener("click", loadHealth);
 nodes.loadRecentButton.addEventListener("click", loadRecent);
+nodes.systemStatusButton.addEventListener("click", loadSystemStatus);
 nodes.preflightButton.addEventListener("click", async () => runPreflight(false));
 nodes.preflightProbeButton.addEventListener("click", async () => runPreflight(true));
 nodes.snapshotButton.addEventListener("click", captureSnapshot);
@@ -937,14 +1014,18 @@ window.addEventListener("beforeunload", () => {
   nodes.refreshSceneContext.disabled = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
   nodes.preflightChecks.innerHTML = "<li class='hint'>Run preflight to validate local setup.</li>";
+  nodes.systemStatusList.innerHTML = "<li class='hint'>Refresh system status to load readiness details.</li>";
   applyStoredSettings(loadStoredSettings());
   applyProviderDefaults();
   setProviderStatus("Provider not tested in this session.", "hint");
   setStreamStatus("Live stream offline.", "hint");
+  nodes.systemStatusSummary.className = "hint";
+  nodes.systemStatusSummary.textContent = "System status not loaded.";
   saveStudioSettings();
   initVoice();
   await loadHealth();
   await loadRecent();
+  await loadSystemStatus();
   if (nodes.liveStreamEnabled.checked) {
     connectLiveStream();
   }

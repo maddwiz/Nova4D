@@ -552,6 +552,97 @@ async function runWorkerProbe(timeoutMs = 8000) {
   };
 }
 
+async function buildPreflightChecks(options = {}) {
+  const probeWorker = options.probeWorker === true;
+  const probeTimeoutMs = parseInteger(options.probeTimeoutMs, 8000, 1000, 30000);
+
+  const checks = [];
+
+  const importDir = checkDirectoryWritable(IMPORT_DIR);
+  checks.push({
+    id: "import_dir_writable",
+    name: "Import directory writable",
+    status: importDir.ok ? "pass" : "fail",
+    required: true,
+    message: importDir.ok ? "Import directory is writable." : "Import directory is not writable.",
+    details: { path: importDir.path, error: importDir.error },
+  });
+
+  const exportDir = checkDirectoryWritable(EXPORT_DIR);
+  checks.push({
+    id: "export_dir_writable",
+    name: "Export directory writable",
+    status: exportDir.ok ? "pass" : "fail",
+    required: true,
+    message: exportDir.ok ? "Export directory is writable." : "Export directory is not writable.",
+    details: { path: exportDir.path, error: exportDir.error },
+  });
+
+  const pluginPath = path.resolve(process.cwd(), "plugins", "Nova4D", "nova4d_plugin.pyp");
+  const pluginExists = fs.existsSync(pluginPath);
+  checks.push({
+    id: "plugin_source_present",
+    name: "Nova4D plugin source",
+    status: pluginExists ? "pass" : "fail",
+    required: true,
+    message: pluginExists ? "Plugin source file found." : "Plugin source file not found.",
+    details: { path: pluginPath },
+  });
+
+  const resolvedC4D = resolveC4DExecutable(C4D_PATH);
+  const c4dOk = resolvedC4D.exists && resolvedC4D.executable;
+  checks.push({
+    id: "c4d_command_resolves",
+    name: "C4D command path",
+    status: c4dOk ? "pass" : "warn",
+    required: false,
+    message: c4dOk
+      ? "C4D command resolves to an executable."
+      : "C4D command did not resolve. Headless/batch features may fail.",
+    details: resolvedC4D,
+  });
+
+  const recentWorker = recentWorkerCommand();
+  checks.push({
+    id: "worker_recent_activity",
+    name: "Recent worker activity",
+    status: recentWorker ? "pass" : "warn",
+    required: false,
+    message: recentWorker
+      ? "Recent worker activity detected."
+      : "No recent worker activity detected.",
+    details: recentWorker
+      ? {
+        command_id: recentWorker.id,
+        route: recentWorker.route,
+        status: recentWorker.status,
+        delivered_to: recentWorker.delivered_to,
+        updated_at: recentWorker.updated_at,
+      }
+      : null,
+  });
+
+  if (probeWorker) {
+    checks.push(await runWorkerProbe(probeTimeoutMs));
+  }
+
+  return checks;
+}
+
+function summarizePreflight(checks, probeWorker, probeTimeoutMs) {
+  const summary = summarizeChecks(checks);
+  const overallStatus = summary.fail > 0 ? "fail" : (summary.warn > 0 ? "warn" : "pass");
+  const requiredFailures = checks.filter((check) => check.required && check.status === "fail").length;
+  return {
+    overall_status: overallStatus,
+    ready_for_local_use: requiredFailures === 0,
+    probe_worker: probeWorker,
+    probe_timeout_ms: probeTimeoutMs,
+    summary,
+    checks,
+  };
+}
+
 function isTerminalStatus(status) {
   return ["succeeded", "failed", "canceled"].includes(String(status || ""));
 }
@@ -767,89 +858,83 @@ app.get("/nova4d/health", (_req, res) => {
 app.get("/nova4d/system/preflight", requireApiKey, async (req, res) => {
   const probeWorker = parseBoolean(req.query.probe_worker, false);
   const probeTimeoutMs = parseInteger(req.query.probe_timeout_ms, 8000, 1000, 30000);
-
-  const checks = [];
-
-  const importDir = checkDirectoryWritable(IMPORT_DIR);
-  checks.push({
-    id: "import_dir_writable",
-    name: "Import directory writable",
-    status: importDir.ok ? "pass" : "fail",
-    required: true,
-    message: importDir.ok ? "Import directory is writable." : "Import directory is not writable.",
-    details: { path: importDir.path, error: importDir.error },
+  const checks = await buildPreflightChecks({
+    probeWorker,
+    probeTimeoutMs,
   });
-
-  const exportDir = checkDirectoryWritable(EXPORT_DIR);
-  checks.push({
-    id: "export_dir_writable",
-    name: "Export directory writable",
-    status: exportDir.ok ? "pass" : "fail",
-    required: true,
-    message: exportDir.ok ? "Export directory is writable." : "Export directory is not writable.",
-    details: { path: exportDir.path, error: exportDir.error },
-  });
-
-  const pluginPath = path.resolve(process.cwd(), "plugins", "Nova4D", "nova4d_plugin.pyp");
-  const pluginExists = fs.existsSync(pluginPath);
-  checks.push({
-    id: "plugin_source_present",
-    name: "Nova4D plugin source",
-    status: pluginExists ? "pass" : "fail",
-    required: true,
-    message: pluginExists ? "Plugin source file found." : "Plugin source file not found.",
-    details: { path: pluginPath },
-  });
-
-  const resolvedC4D = resolveC4DExecutable(C4D_PATH);
-  const c4dOk = resolvedC4D.exists && resolvedC4D.executable;
-  checks.push({
-    id: "c4d_command_resolves",
-    name: "C4D command path",
-    status: c4dOk ? "pass" : "warn",
-    required: false,
-    message: c4dOk
-      ? "C4D command resolves to an executable."
-      : "C4D command did not resolve. Headless/batch features may fail.",
-    details: resolvedC4D,
-  });
-
-  const recentWorker = recentWorkerCommand();
-  checks.push({
-    id: "worker_recent_activity",
-    name: "Recent worker activity",
-    status: recentWorker ? "pass" : "warn",
-    required: false,
-    message: recentWorker
-      ? "Recent worker activity detected."
-      : "No recent worker activity detected.",
-    details: recentWorker
-      ? {
-        command_id: recentWorker.id,
-        route: recentWorker.route,
-        status: recentWorker.status,
-        delivered_to: recentWorker.delivered_to,
-        updated_at: recentWorker.updated_at,
-      }
-      : null,
-  });
-
-  if (probeWorker) {
-    checks.push(await runWorkerProbe(probeTimeoutMs));
-  }
-
-  const summary = summarizeChecks(checks);
-  const overallStatus = summary.fail > 0 ? "fail" : (summary.warn > 0 ? "warn" : "pass");
-  const requiredFailures = checks.filter((check) => check.required && check.status === "fail").length;
+  const preflight = summarizePreflight(checks, probeWorker, probeTimeoutMs);
 
   return res.json({
     status: "ok",
-    overall_status: overallStatus,
-    ready_for_local_use: requiredFailures === 0,
-    probe_worker: probeWorker,
-    probe_timeout_ms: probeTimeoutMs,
-    summary,
-    checks,
+    overall_status: preflight.overall_status,
+    ready_for_local_use: preflight.ready_for_local_use,
+    probe_worker: preflight.probe_worker,
+    probe_timeout_ms: preflight.probe_timeout_ms,
+    summary: preflight.summary,
+    checks: preflight.checks,
+  });
+});
+
+app.get("/nova4d/system/status", requireApiKey, async (_req, res) => {
+  const checks = await buildPreflightChecks({
+    probeWorker: false,
+    probeTimeoutMs: 8000,
+  });
+  const preflight = summarizePreflight(checks, false, 8000);
+  const snapshotCommand = latestSceneSnapshot(1000);
+  const snapshotAgeMs = snapshotCommand ? Math.max(0, Date.now() - snapshotTimestampMs(snapshotCommand)) : null;
+  const worker = recentWorkerCommand();
+  const workerAgeMs = worker
+    ? Math.max(0, Date.now() - Date.parse(worker.updated_at || worker.completed_at || worker.created_at || ""))
+    : null;
+  const clients = store.listSseClients(50);
+
+  return res.json({
+    status: "ok",
+    product: PRODUCT,
+    service: SERVICE,
+    version: VERSION,
+    queue: store.summary(),
+    preflight: {
+      overall_status: preflight.overall_status,
+      ready_for_local_use: preflight.ready_for_local_use,
+      summary: preflight.summary,
+    },
+    latest_snapshot: snapshotCommand
+      ? {
+        available: true,
+        command_id: snapshotCommand.id,
+        captured_at: snapshotCommand.completed_at || snapshotCommand.updated_at || null,
+        age_ms: snapshotAgeMs,
+        delivered_to: snapshotCommand.delivered_to || null,
+        summary: summarizeSnapshot(snapshotCommand.result),
+      }
+      : {
+        available: false,
+        command_id: null,
+        captured_at: null,
+        age_ms: null,
+        delivered_to: null,
+        summary: null,
+      },
+    recent_worker_activity: worker
+      ? {
+        available: true,
+        command_id: worker.id,
+        route: worker.route,
+        status: worker.status,
+        delivered_to: worker.delivered_to || null,
+        updated_at: worker.updated_at || worker.completed_at || null,
+        age_ms: Number.isFinite(workerAgeMs) ? workerAgeMs : null,
+      }
+      : {
+        available: false,
+        command_id: null,
+      },
+    stream_clients: {
+      count: clients.length,
+      clients,
+    },
   });
 });
 

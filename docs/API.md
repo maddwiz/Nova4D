@@ -31,6 +31,12 @@ With worker probe:
 curl -s "${BASE_URL}/nova4d/system/preflight?probe_worker=true&probe_timeout_ms=10000" "${AUTH_HEADER[@]}" | jq .
 ```
 
+### System Status
+
+```bash
+curl -s "${BASE_URL}/nova4d/system/status" "${AUTH_HEADER[@]}" | jq .
+```
+
 ### Queue Stats
 
 ```bash

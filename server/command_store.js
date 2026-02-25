@@ -217,6 +217,17 @@ class CommandStore {
     this.sseClients.delete(res);
   }
 
+  listSseClients(limit = 100) {
+    const max = Math.max(1, Math.min(500, Number(limit) || 100));
+    return Array.from(this.sseClients.values())
+      .map((client) => ({
+        client_id: client.clientId || "unknown",
+        connected_at: client.connectedAt || null,
+      }))
+      .sort((a, b) => String(b.connected_at || "").localeCompare(String(a.connected_at || "")))
+      .slice(0, max);
+  }
+
   broadcastHeartbeat() {
     this._broadcast("heartbeat", { ts: new Date().toISOString() });
   }
