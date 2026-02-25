@@ -30,6 +30,9 @@ test("loads Studio controls including cinematic smoke", async ({ page }) => {
   await openStudio(page);
 
   await expect(page.getByRole("button", { name: "Run Cinematic Smoke" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry Smoke Failures" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Export Smoke Report" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Clear Smoke Session" })).toBeDisabled();
   await expect(page.locator("#workflowGltfOutput")).toBeVisible();
   await expect(page.locator("#cinematicSmokeStatus")).toContainText("idle");
   await expect(page.locator("#runMonitorHistoryStatus")).toContainText("No run monitor history yet.");
@@ -185,4 +188,133 @@ test("runs cinematic smoke and shows stage progress/artifact links", async ({ pa
   await expect(page.locator("#cinematicSmokeArtifacts")).toContainText("/tmp/test-smoke.gltf");
   await expect(page.locator("#cinematicSmokeStatus")).toContainText("3/3 complete", { timeout: 15000 });
   await expect(page.locator("#cinematicSmokeProgress")).toContainText("succeeded");
+  await expect(page.getByRole("button", { name: "Retry Smoke Failures" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Export Smoke Report" })).toBeEnabled();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export Smoke Report" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toContain("nova4d-cinematic-smoke-");
+
+  await page.getByRole("button", { name: "Clear Smoke Session" }).click();
+  await expect(page.locator("#cinematicSmokeStatus")).toContainText("session cleared");
+  await expect(page.getByRole("button", { name: "Export Smoke Report" })).toBeDisabled();
+});
+
+test("retries failed cinematic smoke commands", async ({ page }) => {
+  const commandRows = [
+    {
+      id: "cmd-1",
+      route: "/nova4d/scene/spawn-object",
+      action: "spawn-object",
+      reason: "Create workflow base cube.",
+      status: "queued",
+    },
+    {
+      id: "cmd-2",
+      route: "/nova4d/render/frame",
+      action: "render-frame",
+      reason: "Render workflow preview frame.",
+      status: "queued",
+    },
+    {
+      id: "cmd-3",
+      route: "/nova4d/blender/import-gltf",
+      action: "import-blender-gltf",
+      reason: "Validate Blender glTF import path.",
+      status: "queued",
+    },
+  ];
+
+  let runStartedAt = 0;
+  let retryActivated = false;
+
+  await page.route("**/nova4d/workflows/run", async (route) => {
+    if (route.request().method() !== "POST") {
+      return route.continue();
+    }
+    const body = JSON.parse(route.request().postData() || "{}");
+    if (body.workflow_id !== "cinematic_smoke") {
+      return route.continue();
+    }
+    runStartedAt = Date.now();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "ok",
+        workflow: {
+          id: "cinematic_smoke",
+          name: "Cinematic Smoke",
+          description: "UI smoke retry mock",
+        },
+        options: {
+          render_output: "/tmp/test-smoke-frame.png",
+          gltf_output: "/tmp/test-smoke.gltf",
+        },
+        queued: commandRows,
+        blocked_commands: [],
+      }),
+    });
+  });
+
+  await page.route("**/nova4d/commands/cmd-2/requeue", async (route) => {
+    retryActivated = true;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "ok",
+        command: {
+          id: "cmd-2",
+          route: "/nova4d/render/frame",
+          action: "render-frame",
+          status: "queued",
+        },
+      }),
+    });
+  });
+
+  await page.route(/\/nova4d\/commands\/cmd-\d+$/, async (route) => {
+    const requestUrl = route.request().url();
+    const id = requestUrl.split("/").pop() || "";
+    const elapsed = Date.now() - runStartedAt;
+    let status = "queued";
+    if (retryActivated && id === "cmd-2") {
+      status = "succeeded";
+    } else if (elapsed > 900) {
+      status = id === "cmd-2" ? "failed" : "succeeded";
+    } else if (elapsed > 350) {
+      status = id === "cmd-1" ? "succeeded" : "dispatched";
+    }
+    const template = commandRows.find((item) => item.id === id);
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "ok",
+        command: {
+          id,
+          route: template?.route || "/nova4d/test/ping",
+          action: template?.action || "test-ping",
+          status,
+          error: status === "failed" ? "mock render failure" : "",
+        },
+      }),
+    });
+  });
+
+  await openStudio(page, {
+    settings: {
+      auto_monitor_runs: false,
+    },
+  });
+
+  await page.getByRole("button", { name: "Run Cinematic Smoke" }).click();
+  await expect(page.locator("#cinematicSmokeStatus")).toContainText("failed 1", { timeout: 15000 });
+  await expect(page.getByRole("button", { name: "Retry Smoke Failures" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "Retry Smoke Failures" }).click();
+  await expect(page.locator("#cinematicSmokeStatus")).toContainText("retry queued", { timeout: 10000 });
+  await expect(page.getByRole("button", { name: "Retry Smoke Failures" })).toBeDisabled();
 });

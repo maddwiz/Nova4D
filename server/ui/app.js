@@ -31,6 +31,9 @@ const nodes = {
   runCinematicSmokeButton: document.getElementById("runCinematicSmokeButton"),
   cinematicSmokeStatus: document.getElementById("cinematicSmokeStatus"),
   cinematicSmokeProgress: document.getElementById("cinematicSmokeProgress"),
+  retryCinematicSmokeFailuresButton: document.getElementById("retryCinematicSmokeFailuresButton"),
+  exportCinematicSmokeReportButton: document.getElementById("exportCinematicSmokeReportButton"),
+  clearCinematicSmokeSessionButton: document.getElementById("clearCinematicSmokeSessionButton"),
   cinematicSmokeArtifacts: document.getElementById("cinematicSmokeArtifacts"),
   promptInput: document.getElementById("promptInput"),
   promptPresetSelect: document.getElementById("promptPresetSelect"),
@@ -189,6 +192,7 @@ let smartRunInProgress = false;
 let runMonitorToken = 0;
 let runMonitorActive = false;
 let cinematicSmokeToken = 0;
+let lastCinematicSmokeSession = null;
 let lastRunMonitorSource = "";
 let lastRunMonitorCommandIds = [];
 let lastRunMonitorSnapshots = [];
@@ -1699,6 +1703,187 @@ function renderCinematicSmokeProgress(stages, snapshotById = new Map()) {
   }).join("");
 }
 
+function resetCinematicSmokeProgress() {
+  nodes.cinematicSmokeProgress.innerHTML =
+    "<li class='hint'>Run cinematic smoke to validate cube/cloner/material/animate/render/glTF import flow.</li>";
+}
+
+function sanitizeCinematicSmokeCommand(command) {
+  if (!command || typeof command !== "object") {
+    return null;
+  }
+  const id = String(command.id || "").trim();
+  if (!id) {
+    return null;
+  }
+  return {
+    id,
+    route: String(command.route || "").trim(),
+    action: String(command.action || "").trim(),
+    status: normalizeCommandStatus(command.status),
+    error: String(command.error || "").trim(),
+  };
+}
+
+function updateCinematicSmokeButtons() {
+  const isRunning = Boolean(nodes.runCinematicSmokeButton.disabled);
+  const hasSession = Boolean(lastCinematicSmokeSession);
+  const hasCommands = Boolean(lastCinematicSmokeSession?.command_ids?.length);
+  const failedCount = Number(lastCinematicSmokeSession?.summary?.failed || 0);
+  nodes.retryCinematicSmokeFailuresButton.disabled = isRunning || !hasCommands || failedCount <= 0;
+  nodes.exportCinematicSmokeReportButton.disabled = isRunning || !hasSession;
+  nodes.clearCinematicSmokeSessionButton.disabled = isRunning || !hasSession;
+}
+
+function setCinematicSmokeSession(session) {
+  if (!session || typeof session !== "object") {
+    lastCinematicSmokeSession = null;
+    updateCinematicSmokeButtons();
+    return;
+  }
+  const commandIds = Array.from(new Set(
+    (Array.isArray(session.command_ids) ? session.command_ids : [])
+      .map((id) => String(id || "").trim())
+      .filter(Boolean)
+  ));
+  const commands = (Array.isArray(session.commands) ? session.commands : [])
+    .map((command) => sanitizeCinematicSmokeCommand(command))
+    .filter(Boolean);
+  const summary = summarizeCommandStatuses(commands);
+  const blocked = (Array.isArray(session.blocked_commands) ? session.blocked_commands : []).map((item) => ({
+    route: String(item?.route || "").trim(),
+    reason: String(item?.reason || "blocked").trim(),
+  }));
+  lastCinematicSmokeSession = {
+    workflow_id: String(session.workflow_id || "cinematic_smoke").trim() || "cinematic_smoke",
+    workflow_name: String(session.workflow_name || "Cinematic Smoke").trim() || "Cinematic Smoke",
+    status: String(session.status || "unknown").trim() || "unknown",
+    started_at: String(session.started_at || new Date().toISOString()).trim() || new Date().toISOString(),
+    ended_at: String(session.ended_at || new Date().toISOString()).trim() || new Date().toISOString(),
+    options: session.options && typeof session.options === "object" ? Object.assign({}, session.options) : {},
+    command_ids: commandIds.length ? commandIds : commands.map((command) => command.id),
+    summary,
+    commands,
+    blocked_commands: blocked,
+    retries: Number(session.retries || 0),
+    retry_errors: Number(session.retry_errors || 0),
+    last_retry_at: String(session.last_retry_at || "").trim(),
+    last_error: String(session.last_error || "").trim(),
+  };
+  updateCinematicSmokeButtons();
+}
+
+function clearCinematicSmokeSession(setStatusMessage = true) {
+  lastCinematicSmokeSession = null;
+  updateCinematicSmokeButtons();
+  resetCinematicSmokeProgress();
+  renderCinematicSmokeArtifacts(workflowOptionsPayload(), []);
+  if (setStatusMessage) {
+    setCinematicSmokeStatus("Cinematic smoke session cleared.", "hint");
+  }
+}
+
+async function exportCinematicSmokeReport() {
+  if (!lastCinematicSmokeSession) {
+    setCinematicSmokeStatus("No cinematic smoke session available to export.", "status-warn");
+    return false;
+  }
+  try {
+    const payload = {
+      exported_at: new Date().toISOString(),
+      session: lastCinematicSmokeSession,
+      monitor_status_text: nodes.runMonitorStatus.textContent || "",
+      smoke_status_text: nodes.cinematicSmokeStatus.textContent || "",
+    };
+    const serialized = JSON.stringify(payload, null, 2);
+    const blob = new Blob([serialized], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const stamp = payload.exported_at.replace(/[:.]/g, "-");
+    anchor.href = url;
+    anchor.download = `nova4d-cinematic-smoke-${stamp}.json`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+    setCinematicSmokeStatus("Cinematic smoke report exported.", "status-ok");
+    return true;
+  } catch (_err) {
+    setCinematicSmokeStatus("Failed to export cinematic smoke report.", "status-error");
+    return false;
+  }
+}
+
+async function retryCinematicSmokeFailures() {
+  const session = lastCinematicSmokeSession;
+  if (!session || !session.command_ids.length) {
+    setCinematicSmokeStatus("No cinematic smoke session available to retry.", "status-warn");
+    return;
+  }
+  const snapshots = await fetchCommandSnapshots(session.command_ids);
+  const retryable = snapshots.filter((command) => normalizeCommandStatus(command?.status) === "failed");
+  if (!retryable.length) {
+    setCinematicSmokeStatus("Cinematic smoke: no failed commands to retry.", "hint");
+    setCinematicSmokeSession(Object.assign({}, session, {
+      ended_at: new Date().toISOString(),
+      status: "completed",
+      commands: snapshots,
+    }));
+    return;
+  }
+
+  let requeued = 0;
+  let retryErrors = 0;
+  const queuedRows = [];
+  for (const command of retryable) {
+    const commandId = String(command?.id || "").trim();
+    if (!commandId) {
+      continue;
+    }
+    try {
+      const response = await api(`/nova4d/commands/${encodeURIComponent(commandId)}/requeue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const requeuedCommand = response.command || {};
+      requeued += 1;
+      queuedRows.push({
+        id: commandId,
+        route: requeuedCommand.route || command.route || "",
+        action: requeuedCommand.action || command.action || "",
+        status: requeuedCommand.status || "queued",
+      });
+    } catch (_err) {
+      retryErrors += 1;
+    }
+  }
+
+  if (!requeued) {
+    setCinematicSmokeStatus(`Cinematic smoke retry failed (${retryErrors} errors).`, "status-error");
+    return;
+  }
+
+  setCinematicSmokeStatus(
+    `Cinematic smoke retry queued ${requeued}/${retryable.length} failed command${retryable.length === 1 ? "" : "s"}${retryErrors ? ` | retry errors ${retryErrors}` : ""}.`,
+    retryErrors ? "status-warn" : "status-ok"
+  );
+  await loadRecent();
+  await loadHealth();
+  await loadSystemStatus();
+  await maybeAutoMonitorQueued(queuedRows, "Cinematic Smoke retry");
+  const refreshed = await fetchCommandSnapshots(session.command_ids);
+  setCinematicSmokeSession(Object.assign({}, session, {
+    ended_at: new Date().toISOString(),
+    status: "retry",
+    commands: refreshed,
+    retries: Number(session.retries || 0) + requeued,
+    retry_errors: Number(session.retry_errors || 0) + retryErrors,
+    last_retry_at: new Date().toISOString(),
+  }));
+}
+
 function setRunMonitorStatus(text, className = "hint") {
   nodes.runMonitorStatus.textContent = text;
   nodes.runMonitorStatus.className = className;
@@ -2601,9 +2786,11 @@ async function runCinematicSmoke() {
   const token = cinematicSmokeToken + 1;
   cinematicSmokeToken = token;
   nodes.runCinematicSmokeButton.disabled = true;
+  updateCinematicSmokeButtons();
   const options = workflowOptionsPayload();
   renderCinematicSmokeArtifacts(options, []);
   setCinematicSmokeStatus("Queueing cinematic smoke workflow...", "status-warn");
+  const startedAt = Date.now();
   try {
     const response = await api("/nova4d/workflows/run", {
       method: "POST",
@@ -2622,6 +2809,24 @@ async function runCinematicSmoke() {
     const blocked = Array.isArray(response.blocked_commands) ? response.blocked_commands : [];
     const stages = buildCinematicSmokeStages(queued, blocked);
     renderCinematicSmokeProgress(stages, new Map());
+    const commandIds = queued
+      .map((command) => String(command.id || "").trim())
+      .filter(Boolean);
+    setCinematicSmokeSession({
+      workflow_id: "cinematic_smoke",
+      workflow_name: workflow.name || "Cinematic Smoke",
+      status: commandIds.length ? "running" : "queued",
+      started_at: new Date(startedAt).toISOString(),
+      ended_at: new Date(startedAt).toISOString(),
+      options: response.options || options,
+      command_ids: commandIds,
+      commands: queued,
+      blocked_commands: blocked,
+      retries: 0,
+      retry_errors: 0,
+      last_retry_at: "",
+      last_error: "",
+    });
     renderRun({
       plan: { summary: `${workflow.name || "Cinematic Smoke"} queued.` },
       queued,
@@ -2632,20 +2837,20 @@ async function runCinematicSmoke() {
     await loadHealth();
     await loadSystemStatus();
 
-    const commandIds = queued
-      .map((command) => String(command.id || "").trim())
-      .filter(Boolean);
     renderCinematicSmokeArtifacts(response.options || options, commandIds);
     if (!commandIds.length) {
       setCinematicSmokeStatus(
         `${workflow.name || "Cinematic Smoke"}: no commands queued${blocked.length ? ` | blocked ${blocked.length}` : ""}.`,
         blocked.length ? "status-error" : "status-warn"
       );
+      setCinematicSmokeSession(Object.assign({}, lastCinematicSmokeSession || {}, {
+        status: blocked.length ? "blocked" : "queued",
+        ended_at: new Date().toISOString(),
+      }));
       return;
     }
 
     void maybeAutoMonitorQueued(queued, workflow.name || "Cinematic Smoke");
-    const startedAt = Date.now();
     while (Date.now() - startedAt <= CINEMATIC_SMOKE_TIMEOUT_MS) {
       if (token !== cinematicSmokeToken) {
         return;
@@ -2669,21 +2874,46 @@ async function runCinematicSmoke() {
         statusClass
       );
       if (complete) {
+        setCinematicSmokeSession(Object.assign({}, lastCinematicSmokeSession || {}, {
+          status: summary.failed > 0 ? "completed_with_failures" : "completed",
+          ended_at: new Date().toISOString(),
+          commands: snapshots,
+        }));
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, RUN_MONITOR_POLL_MS));
     }
     if (token === cinematicSmokeToken) {
+      const timeoutSnapshots = await fetchCommandSnapshots(commandIds);
+      setCinematicSmokeSession(Object.assign({}, lastCinematicSmokeSession || {}, {
+        status: "timeout",
+        ended_at: new Date().toISOString(),
+        commands: timeoutSnapshots,
+      }));
       setCinematicSmokeStatus(
         `Cinematic smoke monitor timed out after ${Math.floor(CINEMATIC_SMOKE_TIMEOUT_MS / 1000)}s.`,
         "status-warn"
       );
     }
   } catch (err) {
+    const existing = lastCinematicSmokeSession || {};
+    setCinematicSmokeSession(Object.assign({}, existing, {
+      workflow_id: existing.workflow_id || "cinematic_smoke",
+      workflow_name: existing.workflow_name || "Cinematic Smoke",
+      status: "error",
+      started_at: existing.started_at || new Date(startedAt).toISOString(),
+      ended_at: new Date().toISOString(),
+      options: existing.options || options,
+      command_ids: existing.command_ids || [],
+      commands: existing.commands || [],
+      blocked_commands: existing.blocked_commands || [],
+      last_error: err.message,
+    }));
     setCinematicSmokeStatus(`Cinematic smoke run failed: ${err.message}`, "status-error");
   } finally {
     if (token === cinematicSmokeToken) {
       nodes.runCinematicSmokeButton.disabled = false;
+      updateCinematicSmokeButtons();
     }
   }
 }
@@ -2792,6 +3022,30 @@ function parseVoiceShortcut(rawTranscript) {
   }
   if (/^(run\s+)?cinematic\s+smoke(?:\s+test)?$/.test(command)) {
     return { action: "cinematic-smoke", label: "Run cinematic smoke workflow", key: "cinematic-smoke", prompt: "" };
+  }
+  if (/^retry\s+(?:cinematic\s+smoke|cinematic|smoke)\s+failures$/.test(command)) {
+    return {
+      action: "retry-cinematic-smoke-failures",
+      label: "Retry cinematic smoke failures",
+      key: "retry-cinematic-smoke-failures",
+      prompt: "",
+    };
+  }
+  if (/^export\s+(?:cinematic\s+smoke|smoke)\s+report$/.test(command)) {
+    return {
+      action: "export-cinematic-smoke-report",
+      label: "Export cinematic smoke report",
+      key: "export-cinematic-smoke-report",
+      prompt: "",
+    };
+  }
+  if (/^clear\s+(?:cinematic\s+smoke|smoke)\s+session$/.test(command)) {
+    return {
+      action: "clear-cinematic-smoke-session",
+      label: "Clear cinematic smoke session",
+      key: "clear-cinematic-smoke-session",
+      prompt: "",
+    };
   }
   if (/^preview\s+template$/.test(command)) {
     return { action: "preview-template", label: "Preview selected template", key: "preview-template", prompt: "" };
@@ -2902,7 +3156,7 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
 
     if (shortcut.action === "help") {
       nodes.voiceStatus.textContent =
-        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command run cinematic smoke\", \"nova command show failures\", \"nova command retry failures\", \"nova command stop monitor\", \"nova command load last history\", \"nova command load history 2\", \"nova command export history 3\", \"nova command clear history\".";
+        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command run cinematic smoke\", \"nova command retry smoke failures\", \"nova command export smoke report\", \"nova command show failures\", \"nova command retry failures\", \"nova command stop monitor\", \"nova command load last history\", \"nova command load history 2\", \"nova command export history 3\", \"nova command clear history\".";
       return true;
     }
 
@@ -2953,6 +3207,21 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
     if (shortcut.action === "cinematic-smoke") {
       await runCinematicSmoke();
       nodes.voiceStatus.textContent = "Voice command complete: cinematic smoke run requested.";
+      return true;
+    }
+    if (shortcut.action === "retry-cinematic-smoke-failures") {
+      await retryCinematicSmokeFailures();
+      nodes.voiceStatus.textContent = "Voice command complete: cinematic smoke retry processed.";
+      return true;
+    }
+    if (shortcut.action === "export-cinematic-smoke-report") {
+      await exportCinematicSmokeReport();
+      nodes.voiceStatus.textContent = "Voice command complete: cinematic smoke export processed.";
+      return true;
+    }
+    if (shortcut.action === "clear-cinematic-smoke-session") {
+      clearCinematicSmokeSession(true);
+      nodes.voiceStatus.textContent = "Voice command complete: cinematic smoke session cleared.";
       return true;
     }
     if (shortcut.action === "preview-template") {
@@ -3338,6 +3607,15 @@ nodes.loadTemplateButton.addEventListener("click", loadTemplatePrompt);
 nodes.previewTemplateButton.addEventListener("click", previewTemplateWorkflow);
 nodes.runTemplateButton.addEventListener("click", runTemplateWorkflow);
 nodes.runCinematicSmokeButton.addEventListener("click", runCinematicSmoke);
+nodes.retryCinematicSmokeFailuresButton.addEventListener("click", async () => {
+  await retryCinematicSmokeFailures();
+});
+nodes.exportCinematicSmokeReportButton.addEventListener("click", async () => {
+  await exportCinematicSmokeReport();
+});
+nodes.clearCinematicSmokeSessionButton.addEventListener("click", () => {
+  clearCinematicSmokeSession(true);
+});
 nodes.queuePlanButton.addEventListener("click", queueLastPlan);
 nodes.providerTestButton.addEventListener("click", testProviderConnection);
 nodes.guidedCheckButton.addEventListener("click", runGuidedCheck);
@@ -3506,9 +3784,9 @@ window.addEventListener("beforeunload", () => {
     setRunMonitorHistoryStatus("No run monitor history yet.", "hint");
   }
   setCinematicSmokeStatus("Cinematic smoke test idle.", "hint");
-  nodes.cinematicSmokeProgress.innerHTML =
-    "<li class='hint'>Run cinematic smoke to validate cube/cloner/material/animate/render/glTF import flow.</li>";
+  resetCinematicSmokeProgress();
   renderCinematicSmokeArtifacts(workflowOptionsPayload(), []);
+  setCinematicSmokeSession(null);
   setStreamStatus("Live stream offline.", "hint");
   nodes.systemStatusSummary.className = "hint";
   nodes.systemStatusSummary.textContent = "System status not loaded.";
