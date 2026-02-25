@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node server/index.js",
     "check": "node --check server/index.js && node --check server/assistant_engine.js && node --check server/command_catalog.js && node --check server/command_store.js && node --check server/rate_limiter.js && node --check server/ui/modules/studio_state.js && node --check server/ui/modules/studio_settings.js && node --check server/ui/modules/bridge_status.js && node --check server/ui/modules/provider_management.js && node --check server/ui/modules/workflow_engine.js && node --check server/ui/modules/execution_engine.js && node --check server/ui/modules/cinematic_smoke.js && node --check server/ui/modules/run_monitor.js && node --check server/ui/modules/command_browser.js && node --check server/ui/modules/voice_control.js && node --check server/ui/modules/studio_bootstrap.js && node --check server/ui/app.js && node --check extensions/openclaw/cinema4d-bridge/index.js && node --check examples/mock/mock_c4d_client.js",
+    "plugin-ids:check": "bash scripts/check_plugin_ids.sh",
     "test:unit": "node --test tests/unit/*.test.js",
     "test:ui": "playwright test",
     "mock:c4d": "node examples/mock/mock_c4d_client.js",

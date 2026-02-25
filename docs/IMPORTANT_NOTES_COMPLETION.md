@@ -10,6 +10,7 @@ Nova4D now supports env-driven IDs; no source edit required.
    - Command plugin ID
    - Message plugin ID
    - Special event ID
+   - Reference: `docs/PLUGINCAFE_IDS.md` (includes official Maxon links)
 2. Set environment variables used by Cinema 4D launch:
 
 ```bash
@@ -20,6 +21,11 @@ export NOVA4D_SPECIAL_EVENT_ID=<your_id_3>
 
 3. Start Cinema 4D from the same environment/session.
 4. Confirm no startup warning about placeholder IDs appears in the console.
+5. Run:
+
+```bash
+bash scripts/check_plugin_ids.sh
+```
 
 ## 2. Validate Native Action Coverage In Real C4D
 

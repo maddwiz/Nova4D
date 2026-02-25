@@ -61,6 +61,11 @@ export NOVA4D_PLUGIN_ID_COMMAND="${NOVA4D_PLUGIN_ID_COMMAND:-1234567}"
 export NOVA4D_PLUGIN_ID_MESSAGE="${NOVA4D_PLUGIN_ID_MESSAGE:-1234568}"
 export NOVA4D_SPECIAL_EVENT_ID="${NOVA4D_SPECIAL_EVENT_ID:-1234569}"
 
+if [[ "${NOVA4D_PLUGIN_ID_COMMAND}" == "1234567" ]] || [[ "${NOVA4D_PLUGIN_ID_MESSAGE}" == "1234568" ]] || [[ "${NOVA4D_SPECIAL_EVENT_ID}" == "1234569" ]]; then
+  echo "[Nova4D] WARNING: placeholder PluginCafe IDs are active (local/dev only)."
+  echo "[Nova4D] For marketplace/release builds, request official IDs and run: bash scripts/check_plugin_ids.sh"
+fi
+
 DETECTED_APP="$(detect_c4d_app)"
 export NOVA4D_C4D_PATH="${NOVA4D_C4D_PATH:-$(detect_c4dpy "${DETECTED_APP}")}"
 HEALTH_URL="http://${NOVA4D_HOST}:${NOVA4D_PORT}/nova4d/health"

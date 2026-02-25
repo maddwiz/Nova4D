@@ -12,6 +12,7 @@
 - [ ] Python SDK example works
 - [ ] MCP server starts and tools execute
 - [ ] PluginCafe IDs assigned and set via env vars (`NOVA4D_PLUGIN_ID_*`)
+- [ ] `bash scripts/check_plugin_ids.sh` passes (non-placeholder + unique IDs)
 - [ ] Real C4D action pass completed (see `docs/IMPORTANT_NOTES_COMPLETION.md`)
 - [ ] Cloner `parameter_id` values confirmed for count/mode in your C4D build
 - [ ] Renderer `engine_id` values confirmed for Redshift/Arnold if required
