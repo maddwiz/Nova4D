@@ -3,7 +3,7 @@
 ```
 OpenClaw / LLM Agent / SDK / MCP
   -> HTTP API (Node.js Nova4D bridge, port 30010)
-    -> Command queue (lease-based in-memory store)
+    -> Command queue (lease-based store with disk persistence)
       -> Cinema 4D plugin poller (1s default)
         -> Main-thread command executor
           -> Scene / MoGraph / Materials / Render actions
@@ -26,6 +26,7 @@ Optional:
 - Lease timeout + automatic requeue for stale dispatched commands
 - Manual requeue/cancel endpoints
 - Queue retention cap
+- Store persistence on disk (`NOVA4D_STORE_PATH`) with startup restore + debounced atomic writes
 - SSE stream for immediate wake-up fetches
 
 ## Security Controls
