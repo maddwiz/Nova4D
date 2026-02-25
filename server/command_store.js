@@ -209,15 +209,16 @@ class CommandStore {
     };
   }
 
-  requeue(id) {
+  requeue(id, options = {}) {
     const cmd = this.commands.get(id);
     if (!cmd) {
       return { ok: false, error: `command ${id} not found` };
     }
+    const allowCanceled = options.allowCanceled === true;
     if (cmd.status === "queued") {
       return { ok: true, command: cmd };
     }
-    if (cmd.status === "canceled") {
+    if (cmd.status === "canceled" && !allowCanceled) {
       return { ok: false, error: `command ${id} is canceled` };
     }
     cmd.status = "queued";
@@ -229,6 +230,30 @@ class CommandStore {
     this.stats.requeued_total += 1;
     this._broadcast("requeued", { id: cmd.id });
     return { ok: true, command: cmd };
+  }
+
+  retryFailed(options = {}) {
+    const limit = Math.max(1, Math.min(200, Number(options.limit) || 20));
+    const includeCanceled = options.includeCanceled === true;
+    const candidates = this.listRecent(500)
+      .filter((cmd) => cmd && (cmd.status === "failed" || (includeCanceled && cmd.status === "canceled")))
+      .slice(0, limit);
+
+    const requeued = [];
+    for (const cmd of candidates) {
+      const result = this.requeue(cmd.id, { allowCanceled: includeCanceled });
+      if (result.ok) {
+        requeued.push(result.command.id);
+      }
+    }
+
+    return {
+      ok: true,
+      requested_limit: limit,
+      include_canceled: includeCanceled,
+      requeued_count: requeued.length,
+      command_ids: requeued,
+    };
   }
 
   get(id) {

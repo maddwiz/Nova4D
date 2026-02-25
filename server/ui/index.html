@@ -142,6 +142,15 @@
     <section class="card">
       <h2>Recent Bridge Commands</h2>
       <div class="inline-actions">
+        <select id="recentStatusFilter">
+          <option value="">All statuses</option>
+          <option value="queued">Queued</option>
+          <option value="dispatched">Dispatched</option>
+          <option value="succeeded">Succeeded</option>
+          <option value="failed">Failed</option>
+          <option value="canceled">Canceled</option>
+        </select>
+        <button id="retryFailedButton" class="secondary">Retry Failed</button>
         <button id="cancelPendingButton" class="secondary">Cancel Pending Queue</button>
       </div>
       <table>

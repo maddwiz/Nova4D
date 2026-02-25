@@ -26,6 +26,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Shows recent queue history from `/nova4d/commands/recent`
 - Supports direct command controls in recent history (view, requeue, cancel queued/dispatched)
 - Includes emergency stop control to cancel all queued/dispatched commands
+- Supports bulk retry of failed commands and status-filtered recent view
 - Persists non-secret Studio settings in browser local storage
 
 ## Notes

@@ -23,6 +23,8 @@ const nodes = {
   runSummary: document.getElementById("runSummary"),
   queuedCommands: document.getElementById("queuedCommands"),
   recentTableBody: document.getElementById("recentTableBody"),
+  recentStatusFilter: document.getElementById("recentStatusFilter"),
+  retryFailedButton: document.getElementById("retryFailedButton"),
   liveStreamEnabled: document.getElementById("liveStreamEnabled"),
   streamStatus: document.getElementById("streamStatus"),
   streamEvents: document.getElementById("streamEvents"),
@@ -141,6 +143,7 @@ function saveStudioSettings() {
     refresh_scene_context: Boolean(nodes.refreshSceneContext.checked),
     live_stream_enabled: Boolean(nodes.liveStreamEnabled.checked),
     selected_template: nodes.templateSelect.value || "none",
+    recent_status_filter: nodes.recentStatusFilter.value || "",
   };
   try {
     window.localStorage.setItem(STUDIO_SETTINGS_KEY, JSON.stringify(settings));
@@ -183,6 +186,9 @@ function applyStoredSettings(settings) {
   }
   if (typeof settings.selected_template === "string" && settings.selected_template) {
     nodes.templateSelect.value = settings.selected_template;
+  }
+  if (typeof settings.recent_status_filter === "string") {
+    nodes.recentStatusFilter.value = settings.recent_status_filter;
   }
 }
 
@@ -502,7 +508,13 @@ async function loadHealth() {
 
 async function loadRecent() {
   try {
-    const recent = await api("/nova4d/commands/recent?limit=20");
+    const params = new URLSearchParams();
+    params.set("limit", "20");
+    const statusFilter = (nodes.recentStatusFilter.value || "").trim();
+    if (statusFilter) {
+      params.set("status", statusFilter);
+    }
+    const recent = await api(`/nova4d/commands/recent?${params.toString()}`);
     const commands = Array.isArray(recent.commands) ? recent.commands : [];
     recentCommandMap = new Map(commands.map((command) => [String(command.id || ""), command]));
     nodes.recentTableBody.innerHTML = commands.map((command) => {
@@ -545,6 +557,22 @@ async function loadRecent() {
   } catch (err) {
     nodes.recentTableBody.innerHTML = `<tr><td colspan="6" class="status-error">${escapeHtml(err.message)}</td></tr>`;
   }
+}
+
+async function retryFailedCommands() {
+  const includeCanceled = (nodes.recentStatusFilter.value || "").trim() === "canceled";
+  const response = await api("/nova4d/commands/retry-failed", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      limit: 50,
+      include_canceled: includeCanceled,
+    }),
+  });
+  const count = Number(response.requeued_count || 0);
+  nodes.runSummary.textContent = count > 0
+    ? `Requeued ${count} failed command${count === 1 ? "" : "s"}.`
+    : "No failed commands were requeued.";
 }
 
 function showCommandDetails(command) {
@@ -966,6 +994,10 @@ nodes.useSceneContext.addEventListener("change", () => {
 });
 
 nodes.templateSelect.addEventListener("change", saveStudioSettings);
+nodes.recentStatusFilter.addEventListener("change", async () => {
+  saveStudioSettings();
+  await loadRecent();
+});
 
 nodes.liveStreamEnabled.addEventListener("change", () => {
   saveStudioSettings();
@@ -986,6 +1018,16 @@ nodes.bridgeApiKey.addEventListener("change", () => {
 nodes.refreshButton.addEventListener("click", loadHealth);
 nodes.loadRecentButton.addEventListener("click", loadRecent);
 nodes.systemStatusButton.addEventListener("click", loadSystemStatus);
+nodes.retryFailedButton.addEventListener("click", async () => {
+  try {
+    await retryFailedCommands();
+    await loadRecent();
+    await loadHealth();
+    await loadSystemStatus();
+  } catch (err) {
+    nodes.runSummary.textContent = `Retry failed error: ${err.message}`;
+  }
+});
 nodes.cancelPendingButton.addEventListener("click", async () => {
   try {
     await cancelPendingCommands();
@@ -1017,6 +1059,7 @@ nodes.recentTableBody.addEventListener("click", handleRecentTableAction);
   nodes.refreshSceneContext,
   nodes.liveStreamEnabled,
   nodes.templateSelect,
+  nodes.recentStatusFilter,
 ].forEach((node) => {
   node.addEventListener("change", saveStudioSettings);
 });
@@ -1038,6 +1081,7 @@ window.addEventListener("beforeunload", () => {
   nodes.liveStreamEnabled.checked = true;
   populateTemplateSelect();
   nodes.templateSelect.value = "none";
+  nodes.recentStatusFilter.value = "";
   nodes.refreshSceneContext.disabled = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
   nodes.preflightChecks.innerHTML = "<li class='hint'>Run preflight to validate local setup.</li>";

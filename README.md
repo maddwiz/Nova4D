@@ -82,6 +82,7 @@ From the UI you can:
 - Inspect recent command execution in one place
 - Manage recent commands directly in Studio (view details, requeue, cancel queued jobs)
 - Emergency stop: cancel all queued/dispatched commands from Studio or `/nova4d/commands/cancel-pending`
+- Retry failed jobs in bulk from Studio or `/nova4d/commands/retry-failed`
 
 Detailed guide: `docs/STUDIO_UI.md`
 

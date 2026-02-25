@@ -1440,7 +1440,33 @@ app.get("/nova4d/stats", requireApiKey, (_req, res) => {
 
 app.get("/nova4d/commands/recent", requireApiKey, (req, res) => {
   const limit = parseInteger(req.query.limit, 50, 1, 500);
-  res.json({ status: "ok", commands: store.listRecent(limit) });
+  const statusFilter = String(req.query.status || "").trim().toLowerCase();
+  const routeFilter = String(req.query.route || "").trim().toLowerCase();
+  const actionFilter = String(req.query.action || "").trim().toLowerCase();
+  const clientFilter = String(req.query.client || "").trim().toLowerCase();
+
+  const statusSet = new Set(
+    statusFilter
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+
+  let commands = store.listRecent(500);
+  if (statusSet.size > 0) {
+    commands = commands.filter((command) => statusSet.has(String(command.status || "").toLowerCase()));
+  }
+  if (routeFilter) {
+    commands = commands.filter((command) => String(command.route || "").toLowerCase().includes(routeFilter));
+  }
+  if (actionFilter) {
+    commands = commands.filter((command) => String(command.action || "").toLowerCase().includes(actionFilter));
+  }
+  if (clientFilter) {
+    commands = commands.filter((command) => String(command.delivered_to || "").toLowerCase().includes(clientFilter));
+  }
+
+  res.json({ status: "ok", commands: commands.slice(0, limit) });
 });
 
 app.get("/nova4d/commands/:id", requireApiKey, (req, res) => {
@@ -1565,6 +1591,22 @@ app.post("/nova4d/commands/cancel-pending", requireApiKey, (_req, res) => {
   return res.json({
     status: "ok",
     canceled_count: result.canceled_count,
+    command_ids: result.command_ids,
+  });
+});
+
+app.post("/nova4d/commands/retry-failed", requireApiKey, (req, res) => {
+  const limit = parseInteger(req.body.limit, 20, 1, 200);
+  const includeCanceled = parseBoolean(req.body.include_canceled, false);
+  const result = store.retryFailed({
+    limit,
+    includeCanceled,
+  });
+  return res.json({
+    status: "ok",
+    requested_limit: result.requested_limit,
+    include_canceled: result.include_canceled,
+    requeued_count: result.requeued_count,
     command_ids: result.command_ids,
   });
 });

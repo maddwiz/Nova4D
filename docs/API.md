@@ -49,6 +49,12 @@ curl -s "${BASE_URL}/nova4d/stats" "${AUTH_HEADER[@]}" | jq .
 curl -s "${BASE_URL}/nova4d/commands/recent?limit=50" "${AUTH_HEADER[@]}" | jq .
 ```
 
+Filter recent commands by status/action/route/client:
+
+```bash
+curl -s "${BASE_URL}/nova4d/commands/recent?limit=50&status=failed&action=render&route=/nova4d/render&client=cinema4d-live" "${AUTH_HEADER[@]}" | jq .
+```
+
 ### Command By ID
 
 ```bash
@@ -146,6 +152,15 @@ curl -s -X POST "${BASE_URL}/nova4d/commands/cancel-pending" \
   "${AUTH_HEADER[@]}" \
   -H 'Content-Type: application/json' \
   -d '{}' | jq .
+```
+
+### Retry Failed Commands
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/commands/retry-failed" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{"limit":50,"include_canceled":false}' | jq .
 ```
 
 ### Launch Immediate c4dpy Batch Render
