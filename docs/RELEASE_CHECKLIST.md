@@ -1,6 +1,7 @@
 # Release Checklist
 
 - [ ] `npm run check` passes
+- [ ] `npm run release:preflight` passes (or `npm run release:preflight:dev` while waiting on PluginCafe IDs)
 - [ ] `GET /nova4d/health` returns `status=ok`
 - [ ] `POST /nova4d/test/ping` queues successfully
 - [ ] Queue flow works (`/nova4d/commands` -> plugin/mock executes -> `/nova4d/results`)
