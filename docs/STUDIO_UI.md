@@ -10,14 +10,17 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 ## What it does
 
 - Connects provider settings (Builtin, OpenAI, OpenRouter, Anthropic, OpenAI-compatible)
+- Tests provider connectivity before plan/run (`/nova4d/assistant/provider-test`)
 - Accepts typed prompts or voice dictation (Web Speech API)
 - Applies safety policy (`strict`, `balanced`, `unrestricted`) before queueing
 - Uses live scene context by default (with toggle to refresh per request)
 - Generates a command plan via `/nova4d/assistant/plan`
 - Runs commands into Cinema 4D via `/nova4d/assistant/run`
+- Queues the exact reviewed plan via `/nova4d/assistant/queue` (no re-plan drift)
 - Captures scene snapshots via `/nova4d/introspection/request` and `/nova4d/introspection/latest`
 - Supports scene query endpoints (`/nova4d/scene/graph`, `/nova4d/scene/objects`, `/nova4d/scene/materials`, `/nova4d/scene/object`)
 - Shows recent queue history from `/nova4d/commands/recent`
+- Persists non-secret Studio settings in browser local storage
 
 ## Notes
 

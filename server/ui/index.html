@@ -78,6 +78,10 @@
           <input id="refreshSceneContext" type="checkbox" checked />
           <span>Refresh scene context each request</span>
         </label>
+        <div class="inline-actions">
+          <button id="providerTestButton" class="secondary">Test Provider</button>
+        </div>
+        <div id="providerStatus" class="hint">Provider not tested in this session.</div>
       </article>
     </section>
 
@@ -89,6 +93,7 @@
         <button id="voiceStop" class="secondary">Stop Voice</button>
         <button id="snapshotButton" class="secondary">Scene Snapshot</button>
         <button id="planButton" class="secondary">Plan Only</button>
+        <button id="queuePlanButton" class="secondary">Queue Last Plan</button>
         <button id="runButton">Run In Cinema 4D</button>
       </div>
       <div id="voiceStatus" class="hint">Voice input idle.</div>

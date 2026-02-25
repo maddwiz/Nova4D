@@ -473,6 +473,38 @@ async function planCommands({ input, provider, commandRoutes, routeMap, maxComma
   };
 }
 
+async function testProviderConnection(provider, commandRoutes = []) {
+  const startedAt = Date.now();
+  if (!provider || provider.kind === "builtin") {
+    return {
+      ok: true,
+      mode: "builtin",
+      latency_ms: 0,
+      details: "Builtin planner is local and ready.",
+    };
+  }
+
+  const systemPrompt = buildPlannerPrompt(commandRoutes.slice(0, 20), 1, null);
+  const userPrompt = "Connectivity test: return one /nova4d/test/ping command.";
+  let providerOutput;
+  if (provider.kind === "anthropic") {
+    providerOutput = await callAnthropic(provider, systemPrompt, userPrompt);
+  } else {
+    providerOutput = await callOpenAICompatible(provider, systemPrompt, userPrompt);
+  }
+
+  const parsedJson = providerOutput.json || extractJsonObject(providerOutput.text || "") || {};
+  const commandCount = Array.isArray(parsedJson.commands) ? parsedJson.commands.length : 0;
+  return {
+    ok: true,
+    mode: provider.kind,
+    latency_ms: Date.now() - startedAt,
+    model: provider.model,
+    command_count: commandCount,
+    response_preview: safeString(providerOutput.text || "").slice(0, 220),
+  };
+}
+
 function queuePlannedCommands({ commands, routeMap, store, requestedBy, clientHint }) {
   const queued = [];
   commands.forEach((item) => {
@@ -509,5 +541,6 @@ module.exports = {
   summarizeSceneContext,
   fallbackPlanFromText,
   planCommands,
+  testProviderConnection,
   queuePlannedCommands,
 };

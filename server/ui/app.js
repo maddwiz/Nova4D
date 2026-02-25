@@ -27,6 +27,9 @@ const nodes = {
   snapshotButton: document.getElementById("snapshotButton"),
   planButton: document.getElementById("planButton"),
   runButton: document.getElementById("runButton"),
+  queuePlanButton: document.getElementById("queuePlanButton"),
+  providerTestButton: document.getElementById("providerTestButton"),
+  providerStatus: document.getElementById("providerStatus"),
 };
 
 const providerDefaults = {
@@ -39,6 +42,7 @@ const providerDefaults = {
 
 let recognition = null;
 let lastPlan = null;
+const STUDIO_SETTINGS_KEY = "nova4d.studio.settings.v1";
 
 function escapeHtml(input) {
   return String(input)
@@ -54,6 +58,71 @@ function authHeaders() {
     headers["X-API-Key"] = key;
   }
   return headers;
+}
+
+function loadStoredSettings() {
+  try {
+    const raw = window.localStorage.getItem(STUDIO_SETTINGS_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+    return parsed;
+  } catch (_err) {
+    return {};
+  }
+}
+
+function saveStudioSettings() {
+  const settings = {
+    provider_kind: nodes.providerKind.value || "builtin",
+    provider_base_url: (nodes.providerBaseUrl.value || "").trim(),
+    provider_model: (nodes.providerModel.value || "").trim(),
+    max_commands: Number(nodes.maxCommands.value || 10),
+    safety_mode: nodes.safetyMode.value || "balanced",
+    allow_dangerous: Boolean(nodes.allowDangerous.checked),
+    use_scene_context: Boolean(nodes.useSceneContext.checked),
+    refresh_scene_context: Boolean(nodes.refreshSceneContext.checked),
+  };
+  try {
+    window.localStorage.setItem(STUDIO_SETTINGS_KEY, JSON.stringify(settings));
+  } catch (_err) {
+    // Ignore storage failures (private browsing mode, quota limits, etc.).
+  }
+}
+
+function applyStoredSettings(settings) {
+  if (!settings || typeof settings !== "object") {
+    return;
+  }
+  if (typeof settings.provider_kind === "string" && settings.provider_kind) {
+    nodes.providerKind.value = settings.provider_kind;
+  }
+  if (typeof settings.provider_base_url === "string") {
+    nodes.providerBaseUrl.value = settings.provider_base_url;
+  }
+  if (typeof settings.provider_model === "string") {
+    nodes.providerModel.value = settings.provider_model;
+  }
+  if (Number.isFinite(Number(settings.max_commands))) {
+    const value = Number(settings.max_commands);
+    nodes.maxCommands.value = String(Math.max(1, Math.min(30, value)));
+  }
+  if (typeof settings.safety_mode === "string" && settings.safety_mode) {
+    nodes.safetyMode.value = settings.safety_mode;
+  }
+  if (typeof settings.allow_dangerous === "boolean") {
+    nodes.allowDangerous.checked = settings.allow_dangerous;
+  }
+  if (typeof settings.use_scene_context === "boolean") {
+    nodes.useSceneContext.checked = settings.use_scene_context;
+  }
+  if (typeof settings.refresh_scene_context === "boolean") {
+    nodes.refreshSceneContext.checked = settings.refresh_scene_context;
+  }
 }
 
 async function api(path, options = {}) {
@@ -156,6 +225,11 @@ function applyProviderDefaults() {
   }
 }
 
+function setProviderStatus(text, className = "hint") {
+  nodes.providerStatus.className = className;
+  nodes.providerStatus.textContent = text;
+}
+
 function renderPlan(planResponse) {
   lastPlan = planResponse;
   const commands = Array.isArray(planResponse.plan?.commands) ? planResponse.plan.commands : [];
@@ -201,6 +275,27 @@ function renderRun(runResponse) {
   nodes.queuedCommands.innerHTML = rows.join("");
   if (!rows.length) {
     nodes.queuedCommands.innerHTML = "<li class='hint'>No commands queued.</li>";
+  }
+}
+
+async function testProviderConnection() {
+  setProviderStatus("Testing provider connection...", "status-warn");
+  try {
+    const response = await api("/nova4d/assistant/provider-test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: providerPayload(),
+      }),
+    });
+    const result = response.result || {};
+    const latency = Number.isFinite(Number(result.latency_ms))
+      ? ` | ${result.latency_ms}ms`
+      : "";
+    const detail = result.details ? ` | ${result.details}` : "";
+    setProviderStatus(`Provider ready (${result.mode || "unknown"})${latency}${detail}`, "status-ok");
+  } catch (err) {
+    setProviderStatus(`Provider test failed: ${err.message}`, "status-error");
   }
 }
 
@@ -255,6 +350,43 @@ async function runPlan() {
     await loadRecent();
   } catch (err) {
     nodes.runSummary.textContent = `Run failed: ${err.message}`;
+  }
+}
+
+async function queueLastPlan() {
+  const commands = Array.isArray(lastPlan?.plan?.commands) ? lastPlan.plan.commands : [];
+  if (!commands.length) {
+    nodes.runSummary.textContent = "No reviewed plan available. Click Plan Only first.";
+    return;
+  }
+
+  nodes.runSummary.textContent = "Queueing reviewed plan...";
+  try {
+    const response = await api("/nova4d/assistant/queue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requested_by: "assistant:studio-approved-plan",
+        client_hint: "cinema4d-live",
+        max_commands: Number(nodes.maxCommands.value || 10),
+        safety: safetyPayload(),
+        commands: commands.map((command) => ({
+          route: command.route,
+          payload: command.payload || {},
+          reason: command.reason || "",
+          priority: command.priority || 0,
+        })),
+      }),
+    });
+    renderRun({
+      plan: { summary: "Queued reviewed plan." },
+      queued: response.queued || [],
+      blocked_commands: response.blocked_commands || [],
+      scene_context: { enabled: false },
+    });
+    await loadRecent();
+  } catch (err) {
+    nodes.runSummary.textContent = `Queue failed: ${err.message}`;
   }
 }
 
@@ -350,10 +482,13 @@ nodes.providerKind.addEventListener("change", () => {
   const defaults = providerDefaults[kind] || providerDefaults.builtin;
   nodes.providerBaseUrl.value = defaults.base_url;
   nodes.providerModel.value = defaults.model;
+  setProviderStatus("Provider changed. Test before running.", "hint");
+  saveStudioSettings();
 });
 
 nodes.useSceneContext.addEventListener("change", () => {
   nodes.refreshSceneContext.disabled = !nodes.useSceneContext.checked;
+  saveStudioSettings();
 });
 
 nodes.refreshButton.addEventListener("click", loadHealth);
@@ -361,6 +496,23 @@ nodes.loadRecentButton.addEventListener("click", loadRecent);
 nodes.snapshotButton.addEventListener("click", captureSnapshot);
 nodes.planButton.addEventListener("click", planOnly);
 nodes.runButton.addEventListener("click", runPlan);
+nodes.queuePlanButton.addEventListener("click", queueLastPlan);
+nodes.providerTestButton.addEventListener("click", testProviderConnection);
+
+[
+  nodes.providerBaseUrl,
+  nodes.providerModel,
+  nodes.maxCommands,
+  nodes.safetyMode,
+  nodes.allowDangerous,
+  nodes.refreshSceneContext,
+].forEach((node) => {
+  node.addEventListener("change", saveStudioSettings);
+});
+
+[nodes.providerBaseUrl, nodes.providerModel].forEach((node) => {
+  node.addEventListener("input", saveStudioSettings);
+});
 
 (async function init() {
   nodes.providerKind.value = "builtin";
@@ -369,7 +521,10 @@ nodes.runButton.addEventListener("click", runPlan);
   nodes.useSceneContext.checked = true;
   nodes.refreshSceneContext.checked = true;
   nodes.refreshSceneContext.disabled = false;
+  applyStoredSettings(loadStoredSettings());
   applyProviderDefaults();
+  setProviderStatus("Provider not tested in this session.", "hint");
+  saveStudioSettings();
   initVoice();
   await loadHealth();
   await loadRecent();

@@ -1013,6 +1013,22 @@ curl -s "${BASE_URL}/nova4d/capabilities" "${AUTH_HEADER[@]}" | jq .
 curl -s "${BASE_URL}/nova4d/assistant/providers" "${AUTH_HEADER[@]}" | jq .
 ```
 
+### POST /nova4d/assistant/provider-test
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/assistant/provider-test" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "provider": {
+    "kind": "openai",
+    "base_url": "https://api.openai.com",
+    "model": "gpt-4o-mini",
+    "api_key": "'"${NOVA4D_AI_API_KEY:-}"'"
+  }
+}' | jq .
+```
+
 ### POST /nova4d/assistant/plan
 
 ```bash
@@ -1070,6 +1086,29 @@ curl -s -X POST "${BASE_URL}/nova4d/assistant/queue" \
     {
       "route": "/nova4d/scene/spawn-object",
       "payload": { "object_type": "cube", "name": "ManualCube" }
+    }
+  ]
+}' | jq .
+```
+
+Queue the exact last-reviewed plan (Studio "Queue Last Plan" pattern):
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/assistant/queue" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "requested_by": "assistant:studio-approved-plan",
+  "client_hint": "cinema4d-live",
+  "safety": {
+    "mode": "balanced",
+    "allow_dangerous": false
+  },
+  "commands": [
+    {
+      "route": "/nova4d/scene/spawn-object",
+      "payload": { "object_type": "cube", "name": "ApprovedCube" },
+      "reason": "Reviewed plan item"
     }
   ]
 }' | jq .

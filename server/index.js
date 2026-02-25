@@ -13,6 +13,7 @@ const {
   normalizeProvider,
   summarizeSceneContext,
   planCommands,
+  testProviderConnection,
   queuePlannedCommands,
 } = require("./assistant_engine");
 const {
@@ -809,6 +810,32 @@ app.get("/nova4d/assistant/providers", requireApiKey, (_req, res) => {
       safety_mode: "balanced",
     },
   });
+});
+
+app.post("/nova4d/assistant/provider-test", requireApiKey, async (req, res) => {
+  const provider = normalizeProvider(req.body.provider || {}, process.env);
+  if (provider.kind !== "builtin" && (!provider.base_url || !provider.model)) {
+    return res.status(400).json({
+      status: "error",
+      error: "provider base_url and model are required",
+      provider: toPublicProvider(provider),
+    });
+  }
+
+  try {
+    const result = await testProviderConnection(provider, commandRoutes);
+    return res.json({
+      status: "ok",
+      provider: toPublicProvider(provider),
+      result,
+    });
+  } catch (err) {
+    return res.status(502).json({
+      status: "error",
+      error: err.message,
+      provider: toPublicProvider(provider),
+    });
+  }
 });
 
 app.post("/nova4d/assistant/plan", requireApiKey, async (req, res) => {

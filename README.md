@@ -66,12 +66,15 @@ Start the server, then open:
 From the UI you can:
 
 - Connect AI provider settings (Builtin/OpenAI/OpenRouter/Anthropic/OpenAI-compatible)
+- Test provider connectivity before planning/running
 - Dictate prompts with browser voice input
 - Generate plans (`/nova4d/assistant/plan`) and run them (`/nova4d/assistant/run`)
+- Queue the exact last-reviewed plan (`/nova4d/assistant/queue`) without re-planning
 - Set safety mode (`strict`, `balanced`, `unrestricted`) with dangerous-action guardrails
 - Capture live scene snapshots via `/nova4d/introspection/scene`
 - Query scene graph data via `/nova4d/scene/graph`, `/nova4d/scene/objects`, `/nova4d/scene/materials`, `/nova4d/scene/object`
 - Use context-aware planning by default (planner reads latest live scene snapshot)
+- Persist non-secret Studio settings in browser local storage
 - Inspect recent command execution in one place
 
 Detailed guide: `docs/STUDIO_UI.md`
