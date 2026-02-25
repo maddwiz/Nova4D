@@ -54,6 +54,7 @@ const nodes = {
   snapshotButton: document.getElementById("snapshotButton"),
   planButton: document.getElementById("planButton"),
   runButton: document.getElementById("runButton"),
+  smartRunButton: document.getElementById("smartRunButton"),
   queuePlanButton: document.getElementById("queuePlanButton"),
   providerTestButton: document.getElementById("providerTestButton"),
   providerStatus: document.getElementById("providerStatus"),
@@ -136,6 +137,7 @@ let providerTestState = {
   at: null,
 };
 let lastVoiceShortcut = { key: "", at: 0 };
+let smartRunInProgress = false;
 
 function escapeHtml(input) {
   return String(input)
@@ -1189,6 +1191,28 @@ function providerReadinessStep() {
   };
 }
 
+async function ensureProviderReady() {
+  const kind = normalizeProviderKind(nodes.providerKind.value);
+  if (kind === "builtin") {
+    return { ok: true, reason: "builtin provider selected" };
+  }
+
+  const initial = providerReadinessStep();
+  if (initial.status === "pass") {
+    return { ok: true, reason: "provider already validated", readiness: initial };
+  }
+
+  nodes.runSummary.textContent = "Smart Run: validating provider settings...";
+  await testProviderConnection();
+  const afterTest = providerReadinessStep();
+  if (afterTest.status === "pass") {
+    return { ok: true, reason: "provider validation succeeded", readiness: afterTest };
+  }
+
+  nodes.runSummary.textContent = `Smart Run blocked: ${afterTest.message}`;
+  return { ok: false, reason: "provider validation failed", readiness: afterTest };
+}
+
 function findTemplate(templateId) {
   return WORKFLOW_TEMPLATES.find((item) => item.id === templateId) || WORKFLOW_TEMPLATES[0];
 }
@@ -1302,7 +1326,7 @@ async function planOnly() {
   const input = (nodes.promptInput.value || "").trim();
   if (!input) {
     nodes.planSummary.textContent = "Enter a prompt first.";
-    return;
+    return false;
   }
 
   nodes.planSummary.textContent = "Planning...";
@@ -1319,8 +1343,10 @@ async function planOnly() {
       }),
     });
     renderPlan(response);
+    return true;
   } catch (err) {
     nodes.planSummary.textContent = `Plan failed: ${err.message}`;
+    return false;
   }
 }
 
@@ -1328,7 +1354,7 @@ async function runPlan() {
   const input = (nodes.promptInput.value || "").trim();
   if (!input) {
     nodes.runSummary.textContent = "Enter a prompt first.";
-    return;
+    return false;
   }
 
   nodes.runSummary.textContent = "Running...";
@@ -1347,8 +1373,39 @@ async function runPlan() {
     renderPlan(response);
     renderRun(response);
     await loadRecent();
+    return true;
   } catch (err) {
     nodes.runSummary.textContent = `Run failed: ${err.message}`;
+    return false;
+  }
+}
+
+async function smartRun() {
+  const input = (nodes.promptInput.value || "").trim();
+  if (!input) {
+    nodes.runSummary.textContent = "Enter a prompt first.";
+    return false;
+  }
+  if (smartRunInProgress) {
+    nodes.runSummary.textContent = "Smart Run is already in progress.";
+    return false;
+  }
+
+  smartRunInProgress = true;
+  try {
+    nodes.runSummary.textContent = "Smart Run: validating prerequisites...";
+    const providerReady = await ensureProviderReady();
+    if (!providerReady.ok) {
+      return false;
+    }
+
+    nodes.runSummary.textContent = "Smart Run: executing plan...";
+    const runOk = await runPlan();
+    await loadHealth();
+    await loadSystemStatus();
+    return runOk;
+  } finally {
+    smartRunInProgress = false;
   }
 }
 
@@ -1589,14 +1646,13 @@ function parseVoiceShortcut(rawTranscript) {
     };
   }
 
-  const planRunMatch = command.match(/^(plan|run)\b(.*)$/);
-  if (planRunMatch) {
-    const action = planRunMatch[1] === "plan" ? "plan" : "run";
-    const prompt = trimVoicePrompt(planRunMatch[2] || "");
+  const smartRunMatch = command.match(/^(smart|safe)\s+run\b(.*)$/);
+  if (smartRunMatch) {
+    const prompt = trimVoicePrompt(smartRunMatch[2] || "");
     return {
-      action,
-      label: action === "plan" ? "Plan request" : "Run request",
-      key: `${action}|${prompt}`,
+      action: "smart-run",
+      label: "Smart run request",
+      key: `smart-run|${prompt}`,
       prompt,
     };
   }
@@ -1624,6 +1680,18 @@ function parseVoiceShortcut(rawTranscript) {
   }
   if (/^(help|commands)$/.test(command)) {
     return { action: "help", label: "Show voice command help", key: "help", prompt: "" };
+  }
+
+  const planRunMatch = command.match(/^(plan|run)\b(.*)$/);
+  if (planRunMatch) {
+    const action = planRunMatch[1] === "plan" ? "plan" : "run";
+    const prompt = trimVoicePrompt(planRunMatch[2] || "");
+    return {
+      action,
+      label: action === "plan" ? "Plan request" : "Run request",
+      key: `${action}|${prompt}`,
+      prompt,
+    };
   }
 
   return null;
@@ -1658,18 +1726,31 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
 
     if (shortcut.action === "help") {
       nodes.voiceStatus.textContent =
-        "Voice commands: \"nova command plan ...\", \"nova command run ...\", \"nova command run template\", \"nova command preview template\", \"nova command guided check\".";
+        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command run template\", \"nova command preview template\", \"nova command guided check\".";
       return true;
     }
 
     nodes.voiceStatus.textContent = `Voice command: ${shortcut.label}...`;
+    if (shortcut.action === "smart-run") {
+      if (!nodes.promptInput.value.trim()) {
+        nodes.voiceStatus.textContent = "Voice command requires a prompt. Say: nova command smart run create a cube.";
+        return true;
+      }
+      const ok = await smartRun();
+      nodes.voiceStatus.textContent = ok
+        ? "Voice command complete: smart run submitted."
+        : "Voice command finished with warnings. Check execution summary.";
+      return true;
+    }
     if (shortcut.action === "plan") {
       if (!nodes.promptInput.value.trim()) {
         nodes.voiceStatus.textContent = "Voice command requires a prompt. Say: nova command plan create a cube.";
         return true;
       }
-      await planOnly();
-      nodes.voiceStatus.textContent = "Voice command complete: plan generated.";
+      const ok = await planOnly();
+      nodes.voiceStatus.textContent = ok
+        ? "Voice command complete: plan generated."
+        : "Voice command finished with warnings. Check plan summary.";
       return true;
     }
     if (shortcut.action === "run") {
@@ -1677,8 +1758,10 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
         nodes.voiceStatus.textContent = "Voice command requires a prompt. Say: nova command run create a cube.";
         return true;
       }
-      await runPlan();
-      nodes.voiceStatus.textContent = "Voice command complete: run submitted.";
+      const ok = await runPlan();
+      nodes.voiceStatus.textContent = ok
+        ? "Voice command complete: run submitted."
+        : "Voice command finished with warnings. Check execution summary.";
       return true;
     }
     if (shortcut.action === "queue-plan") {
@@ -1723,6 +1806,41 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
     return true;
   }
   return false;
+}
+
+async function handlePromptKeyboardShortcuts(event) {
+  if (event.key !== "Enter") {
+    return;
+  }
+  const hasSmartModifier = event.metaKey || event.ctrlKey || event.altKey;
+  if (!hasSmartModifier) {
+    return;
+  }
+
+  event.preventDefault();
+  if (event.altKey && !event.metaKey && !event.ctrlKey) {
+    nodes.voiceStatus.textContent = "Keyboard shortcut: running selected template...";
+    await runTemplateWorkflow();
+    nodes.voiceStatus.textContent = "Keyboard shortcut complete: template run requested.";
+    return;
+  }
+
+  if ((event.metaKey || event.ctrlKey) && event.shiftKey) {
+    nodes.voiceStatus.textContent = "Keyboard shortcut: planning...";
+    const ok = await planOnly();
+    nodes.voiceStatus.textContent = ok
+      ? "Keyboard shortcut complete: plan generated."
+      : "Keyboard shortcut finished with warnings. Check plan summary.";
+    return;
+  }
+
+  if (event.metaKey || event.ctrlKey) {
+    nodes.voiceStatus.textContent = "Keyboard shortcut: smart run...";
+    const ok = await smartRun();
+    nodes.voiceStatus.textContent = ok
+      ? "Keyboard shortcut complete: smart run requested."
+      : "Keyboard shortcut finished with warnings. Check execution summary.";
+  }
 }
 
 function initVoice() {
@@ -1856,6 +1974,7 @@ nodes.preflightButton.addEventListener("click", async () => runPreflight(false))
 nodes.preflightProbeButton.addEventListener("click", async () => runPreflight(true));
 nodes.snapshotButton.addEventListener("click", captureSnapshot);
 nodes.planButton.addEventListener("click", planOnly);
+nodes.smartRunButton.addEventListener("click", smartRun);
 nodes.runButton.addEventListener("click", runPlan);
 nodes.loadTemplateButton.addEventListener("click", loadTemplatePrompt);
 nodes.previewTemplateButton.addEventListener("click", previewTemplateWorkflow);
@@ -1879,6 +1998,9 @@ nodes.providerProfileSelect.addEventListener("change", () => {
 nodes.providerProfileApplyButton.addEventListener("click", applySelectedProviderProfile);
 nodes.providerProfileSaveButton.addEventListener("click", saveCurrentProviderProfile);
 nodes.providerProfileDeleteButton.addEventListener("click", deleteSelectedProviderProfile);
+nodes.promptInput.addEventListener("keydown", (event) => {
+  void handlePromptKeyboardShortcuts(event);
+});
 nodes.providerProfileName.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") {
     return;

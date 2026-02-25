@@ -71,8 +71,10 @@ From the UI you can:
 - Use one-click quick workflow templates for common tasks (AI-planned or deterministic via `/nova4d/workflows/run`)
 - Toggle template mode between AI planning and deterministic execution
 - Configure deterministic workflow options (names/frame range/output) and preview before run
+- Use Smart Run to auto-validate provider config before execution
 - Dictate prompts with browser voice input
-- Use voice shortcuts (`nova command plan ...`, `nova command run ...`, `nova command run template`, `nova command guided check`)
+- Use voice shortcuts (`nova command smart run ...`, `nova command plan ...`, `nova command run ...`, `nova command run template`, `nova command guided check`)
+- Use keyboard shortcuts in the prompt box (`Cmd/Ctrl+Enter` Smart Run, `Cmd/Ctrl+Shift+Enter` Plan, `Alt+Enter` Run Template)
 - Run one-click preflight diagnostics (paths, plugin presence, worker probe)
 - Run a one-click guided checklist for bridge/local/worker/provider readiness
 - View consolidated system status (queue, readiness, stream clients, snapshot health)
