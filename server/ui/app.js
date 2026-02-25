@@ -13,6 +13,9 @@ const nodes = {
   allowDangerous: document.getElementById("allowDangerous"),
   useSceneContext: document.getElementById("useSceneContext"),
   refreshSceneContext: document.getElementById("refreshSceneContext"),
+  templateSelect: document.getElementById("templateSelect"),
+  loadTemplateButton: document.getElementById("loadTemplateButton"),
+  runTemplateButton: document.getElementById("runTemplateButton"),
   promptInput: document.getElementById("promptInput"),
   voiceStatus: document.getElementById("voiceStatus"),
   planSummary: document.getElementById("planSummary"),
@@ -42,6 +45,39 @@ const providerDefaults = {
   anthropic: { base_url: "https://api.anthropic.com", model: "claude-3-5-sonnet-latest" },
   "openai-compatible": { base_url: "http://127.0.0.1:1234", model: "gpt-4o-mini" },
 };
+
+const WORKFLOW_TEMPLATES = [
+  {
+    id: "none",
+    label: "Custom Prompt",
+    prompt: "",
+  },
+  {
+    id: "spawn_cube",
+    label: "Spawn Cube",
+    prompt: "Create a cube named TemplateCube at position x 0 y 120 z 0.",
+  },
+  {
+    id: "mograph_cloner",
+    label: "MoGraph Cloner Setup",
+    prompt: "Create a cloner named TemplateCloner and prepare it for cube duplication.",
+  },
+  {
+    id: "redshift_material",
+    label: "Redshift Material",
+    prompt: "Create a Redshift material named TemplateRedshiftMat and assign it to the main cube object.",
+  },
+  {
+    id: "animate_render",
+    label: "Animate + Render",
+    prompt: "Animate the main cube position.x from frame 0 value 0 to frame 30 value 180, then render frame 0 to /tmp/nova4d-template-frame.png.",
+  },
+  {
+    id: "full_smoke",
+    label: "Full Workflow Smoke",
+    prompt: "Create a cube, create a MoGraph cloner, create and assign a Redshift material, animate position from frame 0 to 30, then render frame 0.",
+  },
+];
 
 let recognition = null;
 let lastPlan = null;
@@ -95,6 +131,7 @@ function saveStudioSettings() {
     use_scene_context: Boolean(nodes.useSceneContext.checked),
     refresh_scene_context: Boolean(nodes.refreshSceneContext.checked),
     live_stream_enabled: Boolean(nodes.liveStreamEnabled.checked),
+    selected_template: nodes.templateSelect.value || "none",
   };
   try {
     window.localStorage.setItem(STUDIO_SETTINGS_KEY, JSON.stringify(settings));
@@ -134,6 +171,9 @@ function applyStoredSettings(settings) {
   }
   if (typeof settings.live_stream_enabled === "boolean") {
     nodes.liveStreamEnabled.checked = settings.live_stream_enabled;
+  }
+  if (typeof settings.selected_template === "string" && settings.selected_template) {
+    nodes.templateSelect.value = settings.selected_template;
   }
 }
 
@@ -389,6 +429,27 @@ function setProviderStatus(text, className = "hint") {
   nodes.providerStatus.textContent = text;
 }
 
+function findTemplate(templateId) {
+  return WORKFLOW_TEMPLATES.find((item) => item.id === templateId) || WORKFLOW_TEMPLATES[0];
+}
+
+function populateTemplateSelect() {
+  nodes.templateSelect.innerHTML = WORKFLOW_TEMPLATES.map((item) => (
+    `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`
+  )).join("");
+  if (!nodes.templateSelect.value) {
+    nodes.templateSelect.value = "none";
+  }
+}
+
+function loadTemplatePrompt() {
+  const selected = findTemplate(nodes.templateSelect.value);
+  if (!selected || !selected.prompt) {
+    return;
+  }
+  nodes.promptInput.value = selected.prompt;
+}
+
 function renderPlan(planResponse) {
   lastPlan = planResponse;
   const commands = Array.isArray(planResponse.plan?.commands) ? planResponse.plan.commands : [];
@@ -549,6 +610,18 @@ async function queueLastPlan() {
   }
 }
 
+async function runTemplateWorkflow() {
+  const selected = findTemplate(nodes.templateSelect.value);
+  if (!selected || selected.id === "none") {
+    nodes.runSummary.textContent = "Select a quick workflow template first.";
+    return;
+  }
+  if (selected.prompt) {
+    nodes.promptInput.value = selected.prompt;
+  }
+  await runPlan();
+}
+
 async function waitForCommand(commandId, timeoutMs = 25000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -650,6 +723,8 @@ nodes.useSceneContext.addEventListener("change", () => {
   saveStudioSettings();
 });
 
+nodes.templateSelect.addEventListener("change", saveStudioSettings);
+
 nodes.liveStreamEnabled.addEventListener("change", () => {
   saveStudioSettings();
   if (nodes.liveStreamEnabled.checked) {
@@ -670,6 +745,8 @@ nodes.loadRecentButton.addEventListener("click", loadRecent);
 nodes.snapshotButton.addEventListener("click", captureSnapshot);
 nodes.planButton.addEventListener("click", planOnly);
 nodes.runButton.addEventListener("click", runPlan);
+nodes.loadTemplateButton.addEventListener("click", loadTemplatePrompt);
+nodes.runTemplateButton.addEventListener("click", runTemplateWorkflow);
 nodes.queuePlanButton.addEventListener("click", queueLastPlan);
 nodes.providerTestButton.addEventListener("click", testProviderConnection);
 
@@ -682,6 +759,7 @@ nodes.providerTestButton.addEventListener("click", testProviderConnection);
   nodes.useSceneContext,
   nodes.refreshSceneContext,
   nodes.liveStreamEnabled,
+  nodes.templateSelect,
 ].forEach((node) => {
   node.addEventListener("change", saveStudioSettings);
 });
@@ -701,6 +779,8 @@ window.addEventListener("beforeunload", () => {
   nodes.useSceneContext.checked = true;
   nodes.refreshSceneContext.checked = true;
   nodes.liveStreamEnabled.checked = true;
+  populateTemplateSelect();
+  nodes.templateSelect.value = "none";
   nodes.refreshSceneContext.disabled = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
   applyStoredSettings(loadStoredSettings());

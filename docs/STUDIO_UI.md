@@ -11,6 +11,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 
 - Connects provider settings (Builtin, OpenAI, OpenRouter, Anthropic, OpenAI-compatible)
 - Tests provider connectivity before plan/run (`/nova4d/assistant/provider-test`)
+- Provides quick workflow templates for common one-click actions
 - Accepts typed prompts or voice dictation (Web Speech API)
 - Applies safety policy (`strict`, `balanced`, `unrestricted`) before queueing
 - Uses live scene context by default (with toggle to refresh per request)

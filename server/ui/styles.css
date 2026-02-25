@@ -169,6 +169,10 @@ button:hover {
   flex: 1;
 }
 
+.template-row label {
+  margin-bottom: 6px;
+}
+
 .mono {
   font-family: var(--font-mono);
 }

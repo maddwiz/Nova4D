@@ -92,6 +92,16 @@
 
     <section class="card">
       <h2>Prompt (Text or Voice)</h2>
+      <div class="template-row">
+        <label>
+          Quick workflow
+          <select id="templateSelect"></select>
+        </label>
+      </div>
+      <div class="inline-actions">
+        <button id="loadTemplateButton" class="secondary">Load Template</button>
+        <button id="runTemplateButton" class="secondary">Run Template</button>
+      </div>
       <textarea id="promptInput" rows="5" placeholder="Example: Build a sci-fi cube field using a cloner, create a redshift material, animate x from frame 0 to 60, and render frame 30."></textarea>
       <div class="inline-actions wrap">
         <button id="voiceStart" class="secondary">Start Voice</button>
