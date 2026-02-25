@@ -984,6 +984,71 @@ curl -s -X POST "${BASE_URL}/nova4d/test/ping" \
 }' | jq .
 ```
 
+## AI Studio Endpoints
+
+### GET /nova4d/capabilities
+
+```bash
+curl -s "${BASE_URL}/nova4d/capabilities" "${AUTH_HEADER[@]}" | jq .
+```
+
+### GET /nova4d/assistant/providers
+
+```bash
+curl -s "${BASE_URL}/nova4d/assistant/providers" "${AUTH_HEADER[@]}" | jq .
+```
+
+### POST /nova4d/assistant/plan
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/assistant/plan" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "input": "Create a cube, cloner, and redshift material",
+  "provider": {
+    "kind": "builtin"
+  },
+  "max_commands": 10
+}' | jq .
+```
+
+### POST /nova4d/assistant/run
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/assistant/run" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "input": "Animate a cube and render frame 0",
+  "provider": {
+    "kind": "builtin"
+  },
+  "max_commands": 10
+}' | jq .
+```
+
+### POST /nova4d/assistant/queue
+
+```bash
+curl -s -X POST "${BASE_URL}/nova4d/assistant/queue" \
+  "${AUTH_HEADER[@]}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "requested_by": "assistant:manual",
+  "commands": [
+    {
+      "route": "/nova4d/scene/spawn-object",
+      "payload": { "object_type": "cube", "name": "ManualCube" }
+    }
+  ]
+}' | jq .
+```
+
+Studio UI:
+
+- Open `http://localhost:30010/nova4d/studio`
+
 ## SSE Stream
 
 ```bash

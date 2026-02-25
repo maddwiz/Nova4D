@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nova4D Studio</title>
+  <link rel="stylesheet" href="/nova4d/studio/assets/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <h1>Nova4D Studio</h1>
+        <p>Connect your AI, speak or type intent, then run commands directly in Cinema 4D.</p>
+      </div>
+      <div class="health" id="healthBadge">Checking bridge...</div>
+    </header>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Bridge Connection</h2>
+        <label>
+          Nova4D API key
+          <input id="bridgeApiKey" type="password" placeholder="optional" autocomplete="off" />
+        </label>
+        <div class="inline-actions">
+          <button id="refreshButton" class="secondary">Refresh Status</button>
+          <button id="loadRecentButton" class="secondary">Load Recent</button>
+        </div>
+        <pre id="bridgeInfo" class="mono small">-</pre>
+      </article>
+
+      <article class="card">
+        <h2>AI Provider</h2>
+        <label>
+          Provider
+          <select id="providerKind">
+            <option value="builtin">Builtin (No API key)</option>
+            <option value="openai">OpenAI</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="openai-compatible">OpenAI-Compatible (local/self-hosted)</option>
+          </select>
+        </label>
+        <label>
+          Base URL
+          <input id="providerBaseUrl" type="text" placeholder="https://api.openai.com" autocomplete="off" />
+        </label>
+        <label>
+          Model
+          <input id="providerModel" type="text" placeholder="gpt-4o-mini" autocomplete="off" />
+        </label>
+        <label>
+          Provider API key
+          <input id="providerApiKey" type="password" placeholder="only used for plan/run calls" autocomplete="off" />
+        </label>
+        <label>
+          Max commands per run
+          <input id="maxCommands" type="number" min="1" max="30" value="10" />
+        </label>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>Prompt (Text or Voice)</h2>
+      <textarea id="promptInput" rows="5" placeholder="Example: Build a sci-fi cube field using a cloner, create a redshift material, animate x from frame 0 to 60, and render frame 30."></textarea>
+      <div class="inline-actions wrap">
+        <button id="voiceStart" class="secondary">Start Voice</button>
+        <button id="voiceStop" class="secondary">Stop Voice</button>
+        <button id="planButton" class="secondary">Plan Only</button>
+        <button id="runButton">Run In Cinema 4D</button>
+      </div>
+      <div id="voiceStatus" class="hint">Voice input idle.</div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Generated Plan</h2>
+        <div id="planSummary" class="hint">No plan generated yet.</div>
+        <ol id="planCommands" class="plan-list"></ol>
+      </article>
+
+      <article class="card">
+        <h2>Execution Result</h2>
+        <div id="runSummary" class="hint">No commands queued in this session yet.</div>
+        <ol id="queuedCommands" class="plan-list"></ol>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>Recent Bridge Commands</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Action</th>
+            <th>Status</th>
+            <th>Client</th>
+          </tr>
+        </thead>
+        <tbody id="recentTableBody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/nova4d/studio/assets/app.js"></script>
+</body>
+</html>

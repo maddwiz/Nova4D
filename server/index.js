@@ -8,10 +8,17 @@ const { spawn } = require("child_process");
 const multer = require("multer");
 
 const { CommandStore } = require("./command_store");
+const {
+  minimalCapabilities,
+  normalizeProvider,
+  planCommands,
+  queuePlannedCommands,
+} = require("./assistant_engine");
 
 const VERSION = "1.0.0";
 const PRODUCT = "Nova4D";
 const SERVICE = "Cinema4DBridge";
+const UI_DIR = path.join(__dirname, "ui");
 
 const HOST = process.env.NOVA4D_HOST || "0.0.0.0";
 const PORT = parseInt(process.env.NOVA4D_PORT || "30010", 10);
@@ -48,6 +55,16 @@ app.use(express.json({ limit: "16mb" }));
 app.use((req, res, next) => {
   res.setHeader("X-Nova4D-Version", VERSION);
   next();
+});
+
+app.use("/nova4d/studio/assets", express.static(UI_DIR, {
+  index: false,
+  etag: true,
+  maxAge: "1h",
+}));
+
+app.get("/nova4d/studio", (_req, res) => {
+  res.sendFile(path.join(UI_DIR, "index.html"));
 });
 
 const rateState = new Map();
@@ -218,6 +235,8 @@ const commandRoutes = [
   { path: "/nova4d/test/ping", category: "test", action: "test-ping" },
 ];
 
+const commandRouteByPath = new Map(commandRoutes.map((spec) => [spec.path, spec]));
+
 const headlessJobs = new Map();
 
 function createJobRecord(command, args, logPath) {
@@ -249,6 +268,17 @@ function finalizeJob(job, status, exitCode, signal) {
   job.updated_at = now;
 }
 
+function toPublicProvider(provider) {
+  return {
+    kind: provider.kind,
+    base_url: provider.base_url,
+    model: provider.model,
+    temperature: provider.temperature,
+    max_tokens: provider.max_tokens,
+    api_key_configured: Boolean(provider.api_key),
+  };
+}
+
 app.get("/nova4d/health", (_req, res) => {
   res.json({
     status: "ok",
@@ -260,6 +290,164 @@ app.get("/nova4d/health", (_req, res) => {
     export_dir: EXPORT_DIR,
     api_key_enabled: Boolean(API_KEY),
     c4d_path: C4D_PATH,
+  });
+});
+
+app.get("/nova4d/capabilities", requireApiKey, (_req, res) => {
+  res.json({
+    status: "ok",
+    product: PRODUCT,
+    service: SERVICE,
+    version: VERSION,
+    capabilities: minimalCapabilities(commandRoutes),
+    routes: commandRoutes,
+  });
+});
+
+app.get("/nova4d/assistant/providers", requireApiKey, (_req, res) => {
+  const provider = normalizeProvider({}, process.env);
+  res.json({
+    status: "ok",
+    default_provider: toPublicProvider(provider),
+    supported_providers: [
+      "builtin",
+      "openai",
+      "openrouter",
+      "anthropic",
+      "openai-compatible",
+    ],
+  });
+});
+
+app.post("/nova4d/assistant/plan", requireApiKey, async (req, res) => {
+  const input = String(req.body.input || "").trim();
+  if (!input) {
+    return res.status(400).json({ status: "error", error: "input is required" });
+  }
+
+  const provider = normalizeProvider(req.body.provider || {}, process.env);
+  const maxCommands = parseInteger(req.body.max_commands, 10, 1, 30);
+
+  let warning = null;
+  let plan;
+  try {
+    plan = await planCommands({
+      input,
+      provider,
+      commandRoutes,
+      routeMap: commandRouteByPath,
+      maxCommands,
+    });
+  } catch (err) {
+    warning = err.message;
+    const builtinProvider = normalizeProvider({ kind: "builtin" }, process.env);
+    plan = await planCommands({
+      input,
+      provider: builtinProvider,
+      commandRoutes,
+      routeMap: commandRouteByPath,
+      maxCommands,
+    });
+  }
+
+  return res.json({
+    status: "ok",
+    warning,
+    provider: toPublicProvider(provider),
+    plan: {
+      mode: plan.mode,
+      summary: plan.summary,
+      commands: plan.commands,
+    },
+  });
+});
+
+app.post("/nova4d/assistant/run", requireApiKey, async (req, res) => {
+  const input = String(req.body.input || "").trim();
+  if (!input) {
+    return res.status(400).json({ status: "error", error: "input is required" });
+  }
+
+  const provider = normalizeProvider(req.body.provider || {}, process.env);
+  const maxCommands = parseInteger(req.body.max_commands, 10, 1, 30);
+  const clientHint = String(req.body.client_hint || "cinema4d-live").trim();
+
+  let warning = null;
+  let plan;
+  try {
+    plan = await planCommands({
+      input,
+      provider,
+      commandRoutes,
+      routeMap: commandRouteByPath,
+      maxCommands,
+    });
+  } catch (err) {
+    warning = err.message;
+    const builtinProvider = normalizeProvider({ kind: "builtin" }, process.env);
+    plan = await planCommands({
+      input,
+      provider: builtinProvider,
+      commandRoutes,
+      routeMap: commandRouteByPath,
+      maxCommands,
+    });
+  }
+
+  const queued = queuePlannedCommands({
+    commands: plan.commands,
+    routeMap: commandRouteByPath,
+    store,
+    requestedBy: `assistant:${plan.mode}`,
+    clientHint,
+  });
+
+  return res.json({
+    status: "ok",
+    warning,
+    provider: toPublicProvider(provider),
+    plan: {
+      mode: plan.mode,
+      summary: plan.summary,
+      commands: plan.commands,
+    },
+    queued_count: queued.length,
+    queued,
+  });
+});
+
+app.post("/nova4d/assistant/queue", requireApiKey, (req, res) => {
+  const requestedBy = String(req.body.requested_by || "assistant:manual").trim();
+  const clientHint = String(req.body.client_hint || "cinema4d-live").trim();
+  const maxCommands = parseInteger(req.body.max_commands, 20, 1, 100);
+  const incoming = Array.isArray(req.body.commands) ? req.body.commands : [];
+  if (incoming.length === 0) {
+    return res.status(400).json({ status: "error", error: "commands[] is required" });
+  }
+
+  const commands = incoming.slice(0, maxCommands).map((item) => ({
+    route: String(item.route || "").trim(),
+    payload: item.payload && typeof item.payload === "object" && !Array.isArray(item.payload) ? item.payload : {},
+    reason: String(item.reason || "").slice(0, 800),
+    priority: parseInteger(item.priority, 0, -100, 100),
+  })).filter((item) => commandRouteByPath.has(item.route));
+
+  if (commands.length === 0) {
+    return res.status(400).json({ status: "error", error: "no valid command routes in commands[]" });
+  }
+
+  const queued = queuePlannedCommands({
+    commands,
+    routeMap: commandRouteByPath,
+    store,
+    requestedBy,
+    clientHint,
+  });
+
+  return res.json({
+    status: "ok",
+    queued_count: queued.length,
+    queued,
   });
 });
 

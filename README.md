@@ -13,6 +13,7 @@ Requires an active Cinema 4D 2025+ or 2026 subscription (standalone or Maxon One
 - OpenClaw extension (`extensions/openclaw/cinema4d-bridge`)
 - Python SDK (`python-sdk/nova4d.py`)
 - MCP server (`mcp-server/nova4d_mcp.py`)
+- Built-in Studio UI (`/nova4d/studio`) for text + voice control
 - Curl + mock client examples (`examples/`)
 - Full copy-paste API reference (`API.md` and `docs/API.md`)
 - Packaging script producing `dist/Nova4D-v1.0.0.zip`
@@ -55,6 +56,21 @@ Run mock worker (no Cinema 4D required):
 ```bash
 node examples/mock/mock_c4d_client.js
 ```
+
+## Nova4D Studio UI (AI + Voice)
+
+Start the server, then open:
+
+`http://localhost:30010/nova4d/studio`
+
+From the UI you can:
+
+- Connect AI provider settings (Builtin/OpenAI/OpenRouter/Anthropic/OpenAI-compatible)
+- Dictate prompts with browser voice input
+- Generate plans (`/nova4d/assistant/plan`) and run them (`/nova4d/assistant/run`)
+- Inspect recent command execution in one place
+
+Detailed guide: `docs/STUDIO_UI.md`
 
 ## Plugin Install (Cinema 4D)
 

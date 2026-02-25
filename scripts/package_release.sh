@@ -34,6 +34,7 @@ copy_tree "${ROOT_DIR}/examples" "${PKG_DIR}/"
 copy_tree "${ROOT_DIR}/docs" "${PKG_DIR}/"
 
 cp "${ROOT_DIR}/README.md" "${PKG_DIR}/README.md"
+cp "${ROOT_DIR}/API.md" "${PKG_DIR}/API.md"
 cp "${ROOT_DIR}/QUICK_START.md" "${PKG_DIR}/QUICK_START.md"
 cp "${ROOT_DIR}/INSTALL.md" "${PKG_DIR}/INSTALL.md"
 cp "${ROOT_DIR}/BuyerGuide.md" "${PKG_DIR}/BuyerGuide.md"
