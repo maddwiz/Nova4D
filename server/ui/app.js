@@ -1877,6 +1877,13 @@ function loadRunMonitorHistoryEntry(entry) {
   return true;
 }
 
+function latestRunMonitorHistoryEntry() {
+  if (!runMonitorHistory.length) {
+    return null;
+  }
+  return runMonitorHistory[0] || null;
+}
+
 function normalizeCommandStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
   if (!normalized) {
@@ -2591,6 +2598,15 @@ function parseVoiceShortcut(rawTranscript) {
   if (/^clear(?:\s+monitor(?:\s+session)?)$/.test(command)) {
     return { action: "clear-monitor-session", label: "Clear run monitor session", key: "clear-monitor-session", prompt: "" };
   }
+  if (/^load(?:\s+last)?\s+history(?:\s+session)?$/.test(command)) {
+    return { action: "load-history-session", label: "Load latest monitor history session", key: "load-history-session", prompt: "" };
+  }
+  if (/^export(?:\s+last)?\s+history(?:\s+session)?$/.test(command)) {
+    return { action: "export-history-session", label: "Export latest monitor history session", key: "export-history-session", prompt: "" };
+  }
+  if (/^clear(?:\s+monitor)?\s+history$/.test(command)) {
+    return { action: "clear-monitor-history", label: "Clear run monitor history", key: "clear-monitor-history", prompt: "" };
+  }
   if (/^(stop|stop\s+listening|end\s+voice)$/.test(command)) {
     return { action: "stop-listening", label: "Stop voice input", key: "stop-listening", prompt: "" };
   }
@@ -2642,7 +2658,7 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
 
     if (shortcut.action === "help") {
       nodes.voiceStatus.textContent =
-        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command show failures\", \"nova command retry failures\", \"nova command stop monitor\".";
+        "Voice commands: \"nova command smart run ...\", \"nova command plan ...\", \"nova command run ...\", \"nova command show failures\", \"nova command retry failures\", \"nova command stop monitor\", \"nova command load last history\", \"nova command export last history\", \"nova command clear history\".";
       return true;
     }
 
@@ -2737,6 +2753,35 @@ async function executeVoiceShortcut(shortcut, previousPrompt = "") {
     if (shortcut.action === "clear-monitor-session") {
       clearRunMonitorSession(true);
       nodes.voiceStatus.textContent = "Voice command complete: monitor session cleared.";
+      return true;
+    }
+    if (shortcut.action === "load-history-session") {
+      const selected = latestRunMonitorHistoryEntry();
+      if (!selected) {
+        setRunMonitorHistoryStatus("No run monitor history session available to load.", "status-warn");
+        nodes.voiceStatus.textContent = "Voice command finished: no history session available.";
+        return true;
+      }
+      renderRunMonitorHistory(selected.id);
+      loadRunMonitorHistoryEntry(selected);
+      nodes.voiceStatus.textContent = "Voice command complete: latest history session loaded.";
+      return true;
+    }
+    if (shortcut.action === "export-history-session") {
+      const selected = latestRunMonitorHistoryEntry();
+      if (!selected) {
+        setRunMonitorHistoryStatus("No run monitor history session available to export.", "status-warn");
+        nodes.voiceStatus.textContent = "Voice command finished: no history session available.";
+        return true;
+      }
+      renderRunMonitorHistory(selected.id);
+      await exportRunMonitorHistoryEntry(selected);
+      nodes.voiceStatus.textContent = "Voice command complete: latest history session export processed.";
+      return true;
+    }
+    if (shortcut.action === "clear-monitor-history") {
+      clearRunMonitorHistory();
+      nodes.voiceStatus.textContent = "Voice command complete: monitor history cleared.";
       return true;
     }
     if (shortcut.action === "stop-listening") {

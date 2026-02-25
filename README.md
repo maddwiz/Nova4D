@@ -77,7 +77,7 @@ From the UI you can:
 - Triage last monitored run with one-click failure inspection, retry, export, and session reset
 - Persist run monitor history (latest 30 sessions), then reload/export/clear past sessions
 - Dictate prompts with browser voice input
-- Use voice shortcuts (`nova command smart run ...`, `nova command plan ...`, `nova command run ...`, `nova command run template`, `nova command guided check`)
+- Use voice shortcuts (`nova command smart run ...`, `nova command plan ...`, `nova command run ...`, `nova command run template`, `nova command guided check`, `nova command load last history`, `nova command export last history`, `nova command clear history`)
 - Use keyboard shortcuts in the prompt box (`Cmd/Ctrl+Enter` Smart Run, `Cmd/Ctrl+Shift+Enter` Plan, `Alt+Enter` Run Template)
 - Run one-click preflight diagnostics (paths, plugin presence, worker probe)
 - Run a one-click guided checklist for bridge/local/worker/provider readiness

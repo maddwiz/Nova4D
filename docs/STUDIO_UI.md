@@ -24,7 +24,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Includes a one-click guided checklist (bridge health, local readiness, worker probe, provider status)
 - Shows consolidated system status (queue, readiness, stream clients, snapshot + worker activity)
 - Accepts typed prompts or voice dictation (Web Speech API)
-- Supports voice command shortcuts prefixed with `nova command` for smart-run/plan/run/template/check actions
+- Supports voice command shortcuts prefixed with `nova command` for smart-run/plan/run/template/check actions plus monitor-history load/export/clear
 - Supports prompt keyboard shortcuts (`Cmd/Ctrl+Enter`, `Cmd/Ctrl+Shift+Enter`, `Alt+Enter`)
 - Applies safety policy (`strict`, `balanced`, `unrestricted`) before queueing
 - Uses live scene context by default (with toggle to refresh per request)
