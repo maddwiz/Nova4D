@@ -4,7 +4,7 @@
 
 Riley teased Cinema 4D support. We shipped it.
 
-Nova4D v1.0.0 is an OpenClaw-ready Cinema 4D bridge with:
+Nova4D v1.0.1 is an OpenClaw-ready Cinema 4D bridge with:
 - real queued scene control
 - MoGraph + material + render endpoints
 - C4D Python plugin worker
@@ -17,7 +17,7 @@ Install in minutes, run from prompts.
 
 ## Reddit Draft (r/cinema4d)
 
-Released: Nova4D v1.0.0, an AI bridge for Cinema 4D.
+Released: Nova4D v1.0.1, an AI bridge for Cinema 4D.
 
 If you’re using OpenClaw/LLM agents and want queued, auditable control over C4D scenes and renders, this is built for that workflow.
 
@@ -29,6 +29,6 @@ If you’re using OpenClaw/LLM agents and want queued, auditable control over C4
 
 ## Maxon Forum Draft
 
-Nova4D v1.0.0 introduces a queue-based automation bridge for Cinema 4D that keeps changes deterministic and reversible.
+Nova4D v1.0.1 introduces a queue-based automation bridge for Cinema 4D that keeps changes deterministic and reversible.
 
 Goal: make AI agent scene generation practical for production MoGraph/VFX workflows.

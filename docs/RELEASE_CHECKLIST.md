@@ -15,7 +15,7 @@
 - [ ] Real C4D action pass completed (see `docs/IMPORTANT_NOTES_COMPLETION.md`)
 - [ ] Cloner `parameter_id` values confirmed for count/mode in your C4D build
 - [ ] Renderer `engine_id` values confirmed for Redshift/Arnold if required
-- [ ] Package script produces `dist/Nova4D-v1.0.0.zip`
+- [ ] Package script produces `dist/Nova4D-v1.0.1.zip`
 - [ ] Zip contains plugin + server + sdk + docs + examples
 - [ ] EULA included
 - [ ] Demo script and launch copy finalized

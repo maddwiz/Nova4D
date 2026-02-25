@@ -83,7 +83,7 @@ Run:
 ```bash
 npm run check
 bash examples/mock/e2e_mock.sh
-bash scripts/package_release.sh v1.0.0
+bash scripts/package_release.sh v1.0.1
 ```
 
 Then perform one manual in-app Cinema 4D pass with your licensed 2026.1+ build.

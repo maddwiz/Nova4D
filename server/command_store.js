@@ -1,11 +1,20 @@
 "use strict";
 
+const fs = require("fs");
+const path = require("path");
 const { randomUUID } = require("crypto");
 
 class CommandStore {
   constructor(options = {}) {
     this.leaseMs = Number.isFinite(options.leaseMs) ? options.leaseMs : 120000;
     this.maxRetention = Number.isFinite(options.maxRetention) ? options.maxRetention : 10000;
+    this.persistPath = typeof options.persistPath === "string" && options.persistPath.trim()
+      ? options.persistPath.trim()
+      : "";
+    this.persistDebounceMs = Number.isFinite(options.persistDebounceMs)
+      ? Math.max(20, Math.min(5000, Math.floor(options.persistDebounceMs)))
+      : 200;
+    this.persistTimer = null;
     this.commands = new Map();
     this.pending = [];
     this.sseClients = new Map();
@@ -17,6 +26,7 @@ class CommandStore {
       canceled_total: 0,
       requeued_total: 0,
     };
+    this._loadFromDisk();
   }
 
   enqueue(commandInput) {
@@ -53,6 +63,7 @@ class CommandStore {
       route: command.route,
       created_at: command.created_at,
     });
+    this._markDirty();
     return command;
   }
 
@@ -61,7 +72,7 @@ class CommandStore {
   }
 
   dispatch(clientId, limit) {
-    this._requeueExpired();
+    const requeuedExpired = this._requeueExpired();
     const max = Number.isFinite(limit) ? Math.max(1, Math.min(100, limit)) : 20;
     const out = [];
     const now = Date.now();
@@ -88,6 +99,9 @@ class CommandStore {
         count: out.length,
         ids: out.map((c) => c.id),
       });
+      this._markDirty();
+    } else if (requeuedExpired) {
+      this._markDirty();
     }
 
     return out;
@@ -127,6 +141,7 @@ class CommandStore {
       this._sortPending();
       this.stats.requeued_total += 1;
       this._broadcast("requeued", { id: cmd.id, attempts: cmd.attempts });
+      this._markDirty();
       return { ok: true, command: cmd };
     }
 
@@ -142,6 +157,7 @@ class CommandStore {
       id: cmd.id,
       error: cmd.error,
     });
+    this._markDirty();
     return { ok: true, command: cmd };
   }
 
@@ -160,6 +176,7 @@ class CommandStore {
     this.pending = this.pending.filter((pendingId) => pendingId !== id);
     this.stats.canceled_total += 1;
     this._broadcast("canceled", { id: cmd.id });
+    this._markDirty();
     return { ok: true, command: cmd };
   }
 
@@ -201,6 +218,9 @@ class CommandStore {
       }
     }
     this.pending = keepPending;
+    if (canceled.length > 0) {
+      this._markDirty();
+    }
 
     return {
       ok: true,
@@ -229,6 +249,7 @@ class CommandStore {
     this._sortPending();
     this.stats.requeued_total += 1;
     this._broadcast("requeued", { id: cmd.id });
+    this._markDirty();
     return { ok: true, command: cmd };
   }
 
@@ -311,6 +332,126 @@ class CommandStore {
     this._broadcast("heartbeat", { ts: new Date().toISOString() });
   }
 
+  flush() {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    this._persistToDisk();
+  }
+
+  _markDirty() {
+    if (!this.persistPath) {
+      return;
+    }
+    if (this.persistTimer) {
+      return;
+    }
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      this._persistToDisk();
+    }, this.persistDebounceMs);
+    if (typeof this.persistTimer.unref === "function") {
+      this.persistTimer.unref();
+    }
+  }
+
+  _serializeState() {
+    const commands = Array.from(this.commands.values())
+      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    return {
+      version: 1,
+      lease_ms: this.leaseMs,
+      max_retention: this.maxRetention,
+      stats: Object.assign({}, this.stats),
+      pending: this.pending.slice(),
+      commands,
+      persisted_at: new Date().toISOString(),
+    };
+  }
+
+  _hydrateFromState(state) {
+    if (!state || typeof state !== "object") {
+      return;
+    }
+
+    const commands = Array.isArray(state.commands) ? state.commands : [];
+    const nextCommands = new Map();
+    commands.forEach((row) => {
+      if (!row || typeof row !== "object") {
+        return;
+      }
+      const id = String(row.id || "").trim();
+      if (!id) {
+        return;
+      }
+      nextCommands.set(id, Object.assign({}, row, { id }));
+    });
+
+    const pendingInput = Array.isArray(state.pending) ? state.pending : [];
+    const pending = [];
+    const pendingSeen = new Set();
+    pendingInput.forEach((id) => {
+      const key = String(id || "").trim();
+      if (!key || pendingSeen.has(key)) {
+        return;
+      }
+      const command = nextCommands.get(key);
+      if (command && command.status === "queued") {
+        pendingSeen.add(key);
+        pending.push(key);
+      }
+    });
+
+    const stats = state.stats && typeof state.stats === "object" ? state.stats : {};
+    this.stats = {
+      queued_total: Number.isFinite(Number(stats.queued_total)) ? Number(stats.queued_total) : 0,
+      dispatched_total: Number.isFinite(Number(stats.dispatched_total)) ? Number(stats.dispatched_total) : 0,
+      succeeded_total: Number.isFinite(Number(stats.succeeded_total)) ? Number(stats.succeeded_total) : 0,
+      failed_total: Number.isFinite(Number(stats.failed_total)) ? Number(stats.failed_total) : 0,
+      canceled_total: Number.isFinite(Number(stats.canceled_total)) ? Number(stats.canceled_total) : 0,
+      requeued_total: Number.isFinite(Number(stats.requeued_total)) ? Number(stats.requeued_total) : 0,
+    };
+    this.commands = nextCommands;
+    this.pending = pending;
+    this._sortPending();
+  }
+
+  _loadFromDisk() {
+    if (!this.persistPath) {
+      return;
+    }
+    try {
+      if (!fs.existsSync(this.persistPath)) {
+        return;
+      }
+      const raw = fs.readFileSync(this.persistPath, "utf8");
+      if (!raw.trim()) {
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      this._hydrateFromState(parsed);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[Nova4D] Failed to load command store cache: ${err.message}`);
+    }
+  }
+
+  _persistToDisk() {
+    if (!this.persistPath) {
+      return;
+    }
+    try {
+      fs.mkdirSync(path.dirname(this.persistPath), { recursive: true });
+      const tmpPath = `${this.persistPath}.${process.pid}.${Date.now()}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(this._serializeState()), "utf8");
+      fs.renameSync(tmpPath, this.persistPath);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[Nova4D] Failed to persist command store cache: ${err.message}`);
+    }
+  }
+
   _sortPending() {
     this.pending.sort((left, right) => {
       const a = this.commands.get(left);
@@ -327,6 +468,7 @@ class CommandStore {
 
   _requeueExpired() {
     const now = Date.now();
+    let changed = false;
     for (const cmd of this.commands.values()) {
       if (cmd.status !== "dispatched" || !cmd.lease_expires_at) {
         continue;
@@ -340,8 +482,12 @@ class CommandStore {
       cmd.lease_expires_at = null;
       this.pending.push(cmd.id);
       this.stats.requeued_total += 1;
+      changed = true;
     }
-    this._sortPending();
+    if (changed) {
+      this._sortPending();
+    }
+    return changed;
   }
 
   _pruneIfNeeded() {

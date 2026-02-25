@@ -21,4 +21,4 @@
    - show resulting frame
 
 6. CTA (55-60s)
-   "Nova4D v1.0.0 live now. OpenClaw + Cinema 4D + headless c4dpy."
+   "Nova4D v1.0.1 live now. OpenClaw + Cinema 4D + headless c4dpy."

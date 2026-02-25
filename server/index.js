@@ -8,6 +8,7 @@ const { spawn } = require("child_process");
 const multer = require("multer");
 
 const { CommandStore } = require("./command_store");
+const { createRateLimitMiddleware } = require("./rate_limiter");
 const {
   minimalCapabilities,
   normalizeProvider,
@@ -24,7 +25,7 @@ const {
   normalizeSafetyPolicy,
 } = require("./command_catalog");
 
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 const PRODUCT = "Nova4D";
 const SERVICE = "Cinema4DBridge";
 const UI_DIR = path.join(__dirname, "ui");
@@ -42,6 +43,7 @@ const RATE_LIMIT_WINDOW_MS = parseInt(process.env.NOVA4D_RATE_LIMIT_WINDOW_MS ||
 const RATE_LIMIT_MAX = parseInt(process.env.NOVA4D_RATE_LIMIT_MAX || "240", 10);
 const C4D_PATH = process.env.NOVA4D_C4D_PATH || "c4dpy";
 const HEADLESS_TIMEOUT_SEC = parseInt(process.env.NOVA4D_HEADLESS_TIMEOUT_SEC || "1800", 10);
+const STORE_PATH = process.env.NOVA4D_STORE_PATH || path.join(os.homedir(), ".nova4d", "command-store.json");
 
 fs.mkdirSync(IMPORT_DIR, { recursive: true });
 fs.mkdirSync(EXPORT_DIR, { recursive: true });
@@ -49,6 +51,7 @@ fs.mkdirSync(EXPORT_DIR, { recursive: true });
 const store = new CommandStore({
   leaseMs: Number.isFinite(COMMAND_LEASE_MS) ? COMMAND_LEASE_MS : 120000,
   maxRetention: Number.isFinite(MAX_RETENTION) ? MAX_RETENTION : 10000,
+  persistPath: STORE_PATH,
 });
 
 const upload = multer({
@@ -76,8 +79,6 @@ app.get("/nova4d/studio", (_req, res) => {
   res.sendFile(path.join(UI_DIR, "index.html"));
 });
 
-const rateState = new Map();
-
 function parseInteger(value, fallback, min, max) {
   const parsed = parseInt(String(value ?? fallback), 10);
   if (!Number.isFinite(parsed)) {
@@ -98,36 +99,11 @@ function inferClientId(req) {
   return req.query.client_id || req.get("X-Client-Id") || "cinema4d-live";
 }
 
-function requestIdentity(req) {
-  const apiToken = req.get("X-API-Key") || req.query.api_key || "no-key";
-  const forwarded = req.get("X-Forwarded-For");
-  const ip = (forwarded ? forwarded.split(",")[0] : req.ip) || "unknown";
-  return `${ip}|${apiToken}`;
-}
-
-function requireRateLimit(req, res, next) {
-  if (req.path === "/nova4d/health") {
-    return next();
-  }
-  const key = requestIdentity(req);
-  const now = Date.now();
-  const windowMs = Math.max(5000, RATE_LIMIT_WINDOW_MS);
-  const allowed = Math.max(30, RATE_LIMIT_MAX);
-
-  const existing = rateState.get(key);
-  if (!existing || existing.resetAt <= now) {
-    rateState.set(key, { count: 1, resetAt: now + windowMs });
-    return next();
-  }
-
-  if (existing.count >= allowed) {
-    res.setHeader("Retry-After", String(Math.ceil((existing.resetAt - now) / 1000)));
-    return res.status(429).json({ status: "error", error: "rate limit exceeded" });
-  }
-
-  existing.count += 1;
-  return next();
-}
+const requireRateLimit = createRateLimitMiddleware({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: RATE_LIMIT_MAX,
+  skipPaths: ["/nova4d/health"],
+});
 
 function requireApiKey(req, res, next) {
   if (!API_KEY) {
@@ -1028,6 +1004,7 @@ app.get("/nova4d/health", (_req, res) => {
     queue: store.summary(),
     import_dir: IMPORT_DIR,
     export_dir: EXPORT_DIR,
+    store_path: STORE_PATH,
     api_key_enabled: Boolean(API_KEY),
     c4d_path: C4D_PATH,
   });
@@ -2084,13 +2061,7 @@ app.use((err, _req, res, _next) => {
 
 const heartbeatInterval = setInterval(() => {
   store.broadcastHeartbeat();
-
-  const cutoff = Date.now() - Math.max(5 * 60 * 1000, RATE_LIMIT_WINDOW_MS * 2);
-  for (const [key, entry] of rateState.entries()) {
-    if (entry.resetAt < cutoff) {
-      rateState.delete(key);
-    }
-  }
+  requireRateLimit.prune(Math.max(5 * 60 * 1000, RATE_LIMIT_WINDOW_MS * 2));
 
   if (headlessJobs.size > 1000) {
     const sorted = Array.from(headlessJobs.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -2105,6 +2076,7 @@ const heartbeatInterval = setInterval(() => {
 
 function shutdown() {
   clearInterval(heartbeatInterval);
+  store.flush();
   process.exit(0);
 }
 

@@ -29,6 +29,7 @@ POLL_INTERVAL_SEC = float(os.environ.get("NOVA4D_POLL_SEC", "1.0"))
 CLIENT_ID = os.environ.get("NOVA4D_CLIENT_ID", "cinema4d-live")
 
 NOVA4D_XPRESSO_META_ID = 1064123001
+PLACEHOLDER_PLUGIN_IDS = {1234567, 1234568, 1234569}
 
 
 class BridgeClient:
@@ -81,6 +82,11 @@ class BridgeClient:
 
 def _warn_plugin_id_state():
     ids = {PLUGIN_ID_COMMAND, PLUGIN_ID_MESSAGE, SPECIAL_EVENT_ID}
+    if ids == PLACEHOLDER_PLUGIN_IDS or ids & PLACEHOLDER_PLUGIN_IDS:
+        print(
+            "[Nova4D] WARNING: placeholder plugin IDs detected. "
+            "Request official PluginCafe IDs from Maxon before marketplace release."
+        )
     if len(ids) != 3:
         print("[Nova4D] WARNING: plugin IDs must be unique.")
 

@@ -4,7 +4,7 @@ Requires an active Cinema 4D 2025+ or 2026 subscription (standalone or Maxon One
 
 ## 1. Install
 
-1. Unzip `Nova4D-v1.0.0.zip`.
+1. Unzip `Nova4D-v1.0.1.zip`.
 2. Put `plugins/Nova4D/` into your Cinema 4D plugins folder.
 3. Start the bridge server:
 

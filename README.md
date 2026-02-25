@@ -16,7 +16,7 @@ Requires an active Cinema 4D 2025+ or 2026 subscription (standalone or Maxon One
 - Built-in Studio UI (`/nova4d/studio`) for text + voice control
 - Curl + mock client examples (`examples/`)
 - Full copy-paste API reference (`API.md` and `docs/API.md`)
-- Packaging script producing `dist/Nova4D-v1.0.0.zip`
+- Packaging script producing `dist/Nova4D-v1.0.1.zip`
 
 ## Core Capabilities
 
@@ -133,10 +133,13 @@ Detailed guide: `docs/STUDIO_UI.md`
 - `NOVA4D_BLENDER_SCALE`
 - `NOVA4D_RATE_LIMIT_WINDOW_MS`
 - `NOVA4D_RATE_LIMIT_MAX`
+- `NOVA4D_STORE_PATH`
 - `NOVA4D_C4D_PATH`
 - `NOVA4D_HEADLESS_TIMEOUT_SEC`
 
 ## Notes
 
 - Plugin IDs are env-configurable (`NOVA4D_PLUGIN_ID_COMMAND`, `NOVA4D_PLUGIN_ID_MESSAGE`, `NOVA4D_SPECIAL_EVENT_ID`).
+- Default plugin IDs in examples are placeholders. Request official PluginCafe IDs from Maxon before marketplace release.
+- `legacy/` is archived NovaBlox compatibility code and is not included in packaged Nova4D release zips.
 - Complete the production closeout checklist in `docs/IMPORTANT_NOTES_COMPLETION.md`.

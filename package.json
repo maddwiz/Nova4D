@@ -1,15 +1,16 @@
 {
   "name": "nova4d",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Cinema 4D bridge server and integrations for autonomous AI control",
   "private": true,
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "check": "node --check server/index.js && node --check server/assistant_engine.js && node --check server/command_catalog.js && node --check server/command_store.js && node --check server/ui/app.js && node --check extensions/openclaw/cinema4d-bridge/index.js && node --check examples/mock/mock_c4d_client.js",
+    "check": "node --check server/index.js && node --check server/assistant_engine.js && node --check server/command_catalog.js && node --check server/command_store.js && node --check server/rate_limiter.js && node --check server/ui/modules/provider_management.js && node --check server/ui/modules/workflow_engine.js && node --check server/ui/modules/run_monitor.js && node --check server/ui/modules/command_browser.js && node --check server/ui/app.js && node --check extensions/openclaw/cinema4d-bridge/index.js && node --check examples/mock/mock_c4d_client.js",
+    "test:unit": "node --test tests/unit/*.test.js",
     "test:ui": "playwright test",
     "mock:c4d": "node examples/mock/mock_c4d_client.js",
-    "package": "bash scripts/package_release.sh v1.0.0"
+    "package": "bash scripts/package_release.sh v1.0.1"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -540,6 +540,7 @@ module.exports = {
   normalizeProvider,
   summarizeSceneContext,
   fallbackPlanFromText,
+  sanitizePlan,
   planCommands,
   testProviderConnection,
   queuePlannedCommands,

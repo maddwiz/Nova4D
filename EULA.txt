@@ -1,5 +1,5 @@
 Nova4D End User License Agreement (EULA)
-Version 1.0.0 - February 2026
+Version 1.0.1 - February 2026
 
 Copyright (c) 2026 Nova4D.
 All rights reserved.
