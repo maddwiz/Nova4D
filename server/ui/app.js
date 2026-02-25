@@ -35,6 +35,12 @@ const nodes = {
   queuedCommands: document.getElementById("queuedCommands"),
   recentTableBody: document.getElementById("recentTableBody"),
   recentStatusFilter: document.getElementById("recentStatusFilter"),
+  recentRouteFilter: document.getElementById("recentRouteFilter"),
+  recentActionFilter: document.getElementById("recentActionFilter"),
+  recentClientFilter: document.getElementById("recentClientFilter"),
+  applyRecentFiltersButton: document.getElementById("applyRecentFiltersButton"),
+  clearRecentFiltersButton: document.getElementById("clearRecentFiltersButton"),
+  exportRecentButton: document.getElementById("exportRecentButton"),
   retryFailedButton: document.getElementById("retryFailedButton"),
   liveStreamEnabled: document.getElementById("liveStreamEnabled"),
   streamStatus: document.getElementById("streamStatus"),
@@ -373,6 +379,9 @@ function saveStudioSettings() {
     selected_template: nodes.templateSelect.value || "none",
     deterministic_workflow: Boolean(nodes.deterministicWorkflow.checked),
     recent_status_filter: nodes.recentStatusFilter.value || "",
+    recent_route_filter: (nodes.recentRouteFilter.value || "").trim(),
+    recent_action_filter: (nodes.recentActionFilter.value || "").trim(),
+    recent_client_filter: (nodes.recentClientFilter.value || "").trim(),
     workflow_object_name: (nodes.workflowObjectName.value || "").trim(),
     workflow_cloner_name: (nodes.workflowClonerName.value || "").trim(),
     workflow_material_name: (nodes.workflowMaterialName.value || "").trim(),
@@ -430,6 +439,15 @@ function applyStoredSettings(settings) {
   }
   if (typeof settings.recent_status_filter === "string") {
     nodes.recentStatusFilter.value = settings.recent_status_filter;
+  }
+  if (typeof settings.recent_route_filter === "string") {
+    nodes.recentRouteFilter.value = settings.recent_route_filter;
+  }
+  if (typeof settings.recent_action_filter === "string") {
+    nodes.recentActionFilter.value = settings.recent_action_filter;
+  }
+  if (typeof settings.recent_client_filter === "string") {
+    nodes.recentClientFilter.value = settings.recent_client_filter;
   }
   if (typeof settings.workflow_object_name === "string" && settings.workflow_object_name) {
     nodes.workflowObjectName.value = settings.workflow_object_name;
@@ -856,14 +874,36 @@ async function loadHealth() {
   }
 }
 
+function buildRecentQueryParams(limit = 20) {
+  const params = new URLSearchParams();
+  const parsedLimit = Number.parseInt(String(limit), 10);
+  const safeLimit = Number.isFinite(parsedLimit)
+    ? Math.max(1, Math.min(500, parsedLimit))
+    : 20;
+  params.set("limit", String(safeLimit));
+
+  const statusFilter = (nodes.recentStatusFilter.value || "").trim();
+  const routeFilter = (nodes.recentRouteFilter.value || "").trim();
+  const actionFilter = (nodes.recentActionFilter.value || "").trim();
+  const clientFilter = (nodes.recentClientFilter.value || "").trim();
+  if (statusFilter) {
+    params.set("status", statusFilter);
+  }
+  if (routeFilter) {
+    params.set("route", routeFilter);
+  }
+  if (actionFilter) {
+    params.set("action", actionFilter);
+  }
+  if (clientFilter) {
+    params.set("client", clientFilter);
+  }
+  return params;
+}
+
 async function loadRecent() {
   try {
-    const params = new URLSearchParams();
-    params.set("limit", "20");
-    const statusFilter = (nodes.recentStatusFilter.value || "").trim();
-    if (statusFilter) {
-      params.set("status", statusFilter);
-    }
+    const params = buildRecentQueryParams(20);
     const recent = await api(`/nova4d/commands/recent?${params.toString()}`);
     const commands = Array.isArray(recent.commands) ? recent.commands : [];
     recentCommandMap = new Map(commands.map((command) => [String(command.id || ""), command]));
@@ -906,6 +946,56 @@ async function loadRecent() {
     }
   } catch (err) {
     nodes.recentTableBody.innerHTML = `<tr><td colspan="6" class="status-error">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function applyRecentFilters() {
+  saveStudioSettings();
+  await loadRecent();
+}
+
+async function clearRecentFilters() {
+  nodes.recentStatusFilter.value = "";
+  nodes.recentRouteFilter.value = "";
+  nodes.recentActionFilter.value = "";
+  nodes.recentClientFilter.value = "";
+  saveStudioSettings();
+  await loadRecent();
+}
+
+async function exportRecentCommands() {
+  nodes.runSummary.textContent = "Exporting filtered recent commands...";
+  try {
+    const params = buildRecentQueryParams(500);
+    const response = await api(`/nova4d/commands/recent?${params.toString()}`);
+    const commands = Array.isArray(response.commands) ? response.commands : [];
+    const exportedAt = new Date().toISOString();
+    const payload = {
+      exported_at: exportedAt,
+      filters: {
+        status: (nodes.recentStatusFilter.value || "").trim(),
+        route: (nodes.recentRouteFilter.value || "").trim(),
+        action: (nodes.recentActionFilter.value || "").trim(),
+        client: (nodes.recentClientFilter.value || "").trim(),
+      },
+      count: commands.length,
+      commands,
+    };
+    const serialized = JSON.stringify(payload, null, 2);
+    const blob = new Blob([serialized], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    const stamp = exportedAt.replace(/[:.]/g, "-");
+    anchor.href = url;
+    anchor.download = `nova4d-recent-${stamp}.json`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+    nodes.runSummary.textContent = `Exported ${commands.length} command${commands.length === 1 ? "" : "s"} to JSON.`;
+  } catch (err) {
+    nodes.runSummary.textContent = `Export failed: ${err.message}`;
   }
 }
 
@@ -1927,8 +2017,25 @@ nodes.useSceneContext.addEventListener("change", () => {
 nodes.templateSelect.addEventListener("change", saveStudioSettings);
 nodes.deterministicWorkflow.addEventListener("change", saveStudioSettings);
 nodes.recentStatusFilter.addEventListener("change", async () => {
-  saveStudioSettings();
-  await loadRecent();
+  await applyRecentFilters();
+});
+nodes.applyRecentFiltersButton.addEventListener("click", async () => {
+  await applyRecentFilters();
+});
+nodes.clearRecentFiltersButton.addEventListener("click", async () => {
+  await clearRecentFilters();
+});
+nodes.exportRecentButton.addEventListener("click", async () => {
+  await exportRecentCommands();
+});
+[nodes.recentRouteFilter, nodes.recentActionFilter, nodes.recentClientFilter].forEach((node) => {
+  node.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    await applyRecentFilters();
+  });
 });
 
 nodes.liveStreamEnabled.addEventListener("change", () => {
@@ -2037,6 +2144,9 @@ nodes.providerProfileRememberKey.addEventListener("change", () => {
   nodes.workflowRenderFrame,
   nodes.workflowRenderOutput,
   nodes.recentStatusFilter,
+  nodes.recentRouteFilter,
+  nodes.recentActionFilter,
+  nodes.recentClientFilter,
 ].forEach((node) => {
   node.addEventListener("change", saveStudioSettings);
 });
@@ -2076,6 +2186,9 @@ window.addEventListener("beforeunload", () => {
   nodes.workflowRenderFrame.value = "0";
   nodes.workflowRenderOutput.value = "/tmp/nova4d-workflow-frame.png";
   nodes.recentStatusFilter.value = "";
+  nodes.recentRouteFilter.value = "";
+  nodes.recentActionFilter.value = "";
+  nodes.recentClientFilter.value = "";
   nodes.refreshSceneContext.disabled = false;
   nodes.providerProfileName.value = "";
   nodes.providerProfileRememberKey.checked = false;

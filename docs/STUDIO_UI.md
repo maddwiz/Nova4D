@@ -31,6 +31,7 @@ Nova4D Studio is the built-in browser interface for text + voice control with pl
 - Supports scene query endpoints (`/nova4d/scene/graph`, `/nova4d/scene/objects`, `/nova4d/scene/materials`, `/nova4d/scene/object`)
 - Subscribes to `/nova4d/stream` for live queue events (queued/dispatched/succeeded/failed)
 - Shows recent queue history from `/nova4d/commands/recent`
+- Supports recent history filtering by status/route/action/client and JSON export
 - Supports direct command controls in recent history (view, requeue, cancel queued/dispatched)
 - Includes emergency stop control to cancel all queued/dispatched commands
 - Supports bulk retry of failed commands and status-filtered recent view

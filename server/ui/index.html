@@ -237,6 +237,16 @@
         <button id="retryFailedButton" class="secondary">Retry Failed</button>
         <button id="cancelPendingButton" class="secondary">Cancel Pending Queue</button>
       </div>
+      <div class="inline-actions wrap">
+        <input id="recentRouteFilter" type="text" placeholder="Filter route (contains)" autocomplete="off" />
+        <input id="recentActionFilter" type="text" placeholder="Filter action (contains)" autocomplete="off" />
+        <input id="recentClientFilter" type="text" placeholder="Filter client (contains)" autocomplete="off" />
+      </div>
+      <div class="inline-actions">
+        <button id="applyRecentFiltersButton" class="secondary">Apply Filters</button>
+        <button id="clearRecentFiltersButton" class="secondary">Clear Filters</button>
+        <button id="exportRecentButton" class="secondary">Export Filtered JSON</button>
+      </div>
       <table>
         <thead>
           <tr>

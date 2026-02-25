@@ -88,6 +88,7 @@ From the UI you can:
 - Optionally persist provider API keys in saved browser profiles
 - Watch live queue lifecycle updates in Studio via `/nova4d/stream`
 - Inspect recent command execution in one place
+- Filter recent commands by status/route/action/client and export filtered history to JSON
 - Manage recent commands directly in Studio (view details, requeue, cancel queued jobs)
 - Emergency stop: cancel all queued/dispatched commands from Studio or `/nova4d/commands/cancel-pending`
 - Retry failed jobs in bulk from Studio or `/nova4d/commands/retry-failed`
