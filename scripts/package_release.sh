@@ -53,3 +53,7 @@ cp "${ROOT_DIR}/.env.example" "${PKG_DIR}/.env.example"
 )
 
 echo "Created package: ${ZIP_PATH}"
+
+if [[ "${NOVA4D_SKIP_PACKAGE_VERIFY:-0}" != "1" ]]; then
+  bash "${ROOT_DIR}/scripts/verify_release_zip.sh" "${VERSION}"
+fi

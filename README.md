@@ -142,6 +142,7 @@ Detailed guide: `docs/STUDIO_UI.md`
 - Plugin IDs are env-configurable (`NOVA4D_PLUGIN_ID_COMMAND`, `NOVA4D_PLUGIN_ID_MESSAGE`, `NOVA4D_SPECIAL_EVENT_ID`).
 - Default plugin IDs in examples are placeholders. Request official PluginCafe IDs from Maxon before marketplace release.
 - Use `bash scripts/check_plugin_ids.sh` as a release gate (non-placeholder + unique IDs required).
+- Use `bash scripts/verify_release_zip.sh v1.0.1` to confirm release zip contents before shipping.
 - Exact request steps are documented in `docs/PLUGINCAFE_IDS.md`.
 - `legacy/` is archived NovaBlox compatibility code and is not included in packaged Nova4D release zips.
 - Complete the production closeout checklist in `docs/IMPORTANT_NOTES_COMPLETION.md`.

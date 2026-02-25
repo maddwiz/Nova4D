@@ -17,6 +17,6 @@
 - [ ] Cloner `parameter_id` values confirmed for count/mode in your C4D build
 - [ ] Renderer `engine_id` values confirmed for Redshift/Arnold if required
 - [ ] Package script produces `dist/Nova4D-v1.0.1.zip`
-- [ ] Zip contains plugin + server + sdk + docs + examples
+- [ ] `bash scripts/verify_release_zip.sh v1.0.1` passes (required paths present, blocked paths excluded)
 - [ ] EULA included
 - [ ] Demo script and launch copy finalized
