@@ -4,7 +4,10 @@ Delivered scope:
 
 - Expanded native plugin execution coverage for XPresso commands (`add-node`, `connect`, `set-parameter`) with graph + metadata fallback.
 - Added renderer material creation path for Redshift/Arnold with safe fallback behavior.
-- Added persistent on-disk command store (`NOVA4D_STORE_PATH`) so command history and scene snapshots survive server restart.
-- Added unit tests for assistant planner sanitization, payload validation/safety filtering, rate limiting, and command-store persistence.
-- Split Studio UI responsibilities into modules (`provider_management`, `workflow_engine`, `run_monitor`, `command_browser`) to reduce `app.js` size.
+- Added Scene Vision loop in assistant run flow (post-run screenshot capture, multimodal vision feedback, bounded correction iterations).
+- Added optional SQLite persistence mode (`NOVA4D_STORE_DRIVER=sqlite`, `NOVA4D_STORE_SQLITE_PATH`) in addition to JSON store mode.
+- Expanded unit coverage for assistant planner/safety logic, command store behavior, rate limiting, workflow engine, voice shortcuts, and run monitor.
+- Split Studio UI responsibilities into focused modules and added Scene Vision controls in Studio.
+- Extracted server route registration into modular route files (`system`, `scene/introspection`, `assistant`, `queue`, `upload/batch`) to reduce `server/index.js` complexity.
+- Finalized release hardening: plugin ID validation gate, legal EULA update, and release zip verification excluding `legacy/`.
 - Synced server/package/release scripts to v1.0.1.

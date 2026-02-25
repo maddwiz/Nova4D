@@ -3,7 +3,8 @@
 ```
 OpenClaw / LLM Agent / SDK / MCP
   -> HTTP API (Node.js Nova4D bridge, port 30010)
-    -> Command queue (lease-based store with disk persistence)
+    -> Route modules (system/workflow, scene/introspection, assistant, queue, upload/batch)
+    -> Command queue (lease-based store with optional JSON/SQLite persistence)
       -> Cinema 4D plugin poller (1s default)
         -> Main-thread command executor
           -> Scene / MoGraph / Materials / Render actions
@@ -11,6 +12,8 @@ OpenClaw / LLM Agent / SDK / MCP
 Optional:
   -> /nova4d/batch/render
     -> c4dpy headless process
+  -> /nova4d/assistant/run (scene vision loop)
+    -> execute plan -> capture screenshot -> multimodal feedback -> correction pass (max iterations)
 ```
 
 ## Command Flow
@@ -26,7 +29,9 @@ Optional:
 - Lease timeout + automatic requeue for stale dispatched commands
 - Manual requeue/cancel endpoints
 - Queue retention cap
-- Store persistence on disk (`NOVA4D_STORE_PATH`) with startup restore + debounced atomic writes
+- Store persistence on disk:
+  - JSON mode (`NOVA4D_STORE_DRIVER=json`, `NOVA4D_STORE_PATH`)
+  - SQLite mode (`NOVA4D_STORE_DRIVER=sqlite`, `NOVA4D_STORE_SQLITE_PATH`)
 - SSE stream for immediate wake-up fetches
 
 ## Security Controls
