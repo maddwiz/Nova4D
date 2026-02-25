@@ -23,3 +23,56 @@ test("command store persists commands to disk and restores after restart", () =>
   assert.equal(loaded.status, "succeeded");
   assert.deepEqual(loaded.result, { message: "done" });
 });
+
+test("dispatch requeues expired leases and increments attempts", async () => {
+  const store = new CommandStore({ leaseMs: 5 });
+  const command = store.enqueue({ route: "/nova4d/test/ping", category: "test", action: "test-ping", payload: {} });
+  const firstDispatch = store.dispatch("client-a", 1);
+  assert.equal(firstDispatch.length, 1);
+  assert.equal(firstDispatch[0].id, command.id);
+  assert.equal(firstDispatch[0].attempts, 1);
+
+  await new Promise((resolve) => {
+    setTimeout(resolve, 20);
+  });
+
+  const secondDispatch = store.dispatch("client-b", 1);
+  assert.equal(secondDispatch.length, 1);
+  assert.equal(secondDispatch[0].id, command.id);
+  assert.equal(secondDispatch[0].attempts, 2);
+  assert.equal(store.summary().counters.requeued_total, 1);
+});
+
+test("cancelPending cancels queued and dispatched commands", () => {
+  const store = new CommandStore();
+  const queued = store.enqueue({ route: "/nova4d/test/ping", category: "test", action: "queued", payload: {} });
+  const dispatched = store.enqueue({ route: "/nova4d/test/ping", category: "test", action: "dispatched", payload: {} });
+  store.dispatch("client-a", 1);
+
+  const result = store.cancelPending();
+  assert.equal(result.ok, true);
+  assert.equal(result.canceled_count, 2);
+  assert.equal(store.get(queued.id)?.status, "canceled");
+  assert.equal(store.get(dispatched.id)?.status, "canceled");
+  assert.equal(store.summary().pending_count, 0);
+});
+
+test("retryFailed can include canceled commands", () => {
+  const store = new CommandStore();
+  const failed = store.enqueue({ route: "/nova4d/test/ping", category: "test", action: "failed", payload: {} });
+  const canceled = store.enqueue({ route: "/nova4d/test/ping", category: "test", action: "canceled", payload: {} });
+  store.result({ command_id: failed.id, status: "error", ok: false, error: "boom" });
+  store.cancel(canceled.id);
+
+  const retryFailedOnly = store.retryFailed({ includeCanceled: false, limit: 10 });
+  assert.equal(retryFailedOnly.requeued_count, 1);
+  assert.deepEqual(retryFailedOnly.command_ids, [failed.id]);
+
+  store.cancel(failed.id);
+  const retryIncludingCanceled = store.retryFailed({ includeCanceled: true, limit: 10 });
+  assert.equal(retryIncludingCanceled.requeued_count, 2);
+  assert.deepEqual(
+    retryIncludingCanceled.command_ids.sort(),
+    [failed.id, canceled.id].sort()
+  );
+});
