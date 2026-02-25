@@ -11,6 +11,8 @@ const nodes = {
   maxCommands: document.getElementById("maxCommands"),
   safetyMode: document.getElementById("safetyMode"),
   allowDangerous: document.getElementById("allowDangerous"),
+  useSceneContext: document.getElementById("useSceneContext"),
+  refreshSceneContext: document.getElementById("refreshSceneContext"),
   promptInput: document.getElementById("promptInput"),
   voiceStatus: document.getElementById("voiceStatus"),
   planSummary: document.getElementById("planSummary"),
@@ -136,6 +138,13 @@ function safetyPayload() {
   };
 }
 
+function contextPayload() {
+  return {
+    use_scene_context: Boolean(nodes.useSceneContext.checked),
+    refresh_scene_context: Boolean(nodes.refreshSceneContext.checked),
+  };
+}
+
 function applyProviderDefaults() {
   const kind = nodes.providerKind.value;
   const defaults = providerDefaults[kind] || providerDefaults.builtin;
@@ -151,7 +160,8 @@ function renderPlan(planResponse) {
   lastPlan = planResponse;
   const commands = Array.isArray(planResponse.plan?.commands) ? planResponse.plan.commands : [];
   const blocked = Array.isArray(planResponse.blocked_commands) ? planResponse.blocked_commands : [];
-  nodes.planSummary.textContent = `${planResponse.plan?.summary || "No summary."} (${commands.length} command${commands.length === 1 ? "" : "s"})${blocked.length ? ` | blocked ${blocked.length}` : ""}`;
+  const contextSource = planResponse.scene_context?.enabled ? ` | ctx ${planResponse.scene_context?.source || "none"}` : "";
+  nodes.planSummary.textContent = `${planResponse.plan?.summary || "No summary."} (${commands.length} command${commands.length === 1 ? "" : "s"})${blocked.length ? ` | blocked ${blocked.length}` : ""}${contextSource}`;
 
   const commandRows = commands.map((command) => {
     const route = escapeHtml(command.route || "");
@@ -174,7 +184,8 @@ function renderPlan(planResponse) {
 function renderRun(runResponse) {
   const queued = Array.isArray(runResponse.queued) ? runResponse.queued : [];
   const blocked = Array.isArray(runResponse.blocked_commands) ? runResponse.blocked_commands : [];
-  nodes.runSummary.textContent = `${runResponse.plan?.summary || "Run complete."} | queued ${queued.length}${blocked.length ? ` | blocked ${blocked.length}` : ""}`;
+  const contextSource = runResponse.scene_context?.enabled ? ` | ctx ${runResponse.scene_context?.source || "none"}` : "";
+  nodes.runSummary.textContent = `${runResponse.plan?.summary || "Run complete."} | queued ${queued.length}${blocked.length ? ` | blocked ${blocked.length}` : ""}${contextSource}`;
   const queuedRows = queued.map((command) => {
     const route = escapeHtml(command.route || "");
     const id = escapeHtml(command.id || "");
@@ -209,6 +220,7 @@ async function planOnly() {
         input,
         provider: providerPayload(),
         safety: safetyPayload(),
+        ...contextPayload(),
         max_commands: Number(nodes.maxCommands.value || 10),
       }),
     });
@@ -234,6 +246,7 @@ async function runPlan() {
         input,
         provider: providerPayload(),
         safety: safetyPayload(),
+        ...contextPayload(),
         max_commands: Number(nodes.maxCommands.value || 10),
       }),
     });
@@ -339,6 +352,10 @@ nodes.providerKind.addEventListener("change", () => {
   nodes.providerModel.value = defaults.model;
 });
 
+nodes.useSceneContext.addEventListener("change", () => {
+  nodes.refreshSceneContext.disabled = !nodes.useSceneContext.checked;
+});
+
 nodes.refreshButton.addEventListener("click", loadHealth);
 nodes.loadRecentButton.addEventListener("click", loadRecent);
 nodes.snapshotButton.addEventListener("click", captureSnapshot);
@@ -349,6 +366,9 @@ nodes.runButton.addEventListener("click", runPlan);
   nodes.providerKind.value = "builtin";
   nodes.safetyMode.value = "balanced";
   nodes.allowDangerous.checked = false;
+  nodes.useSceneContext.checked = true;
+  nodes.refreshSceneContext.checked = true;
+  nodes.refreshSceneContext.disabled = false;
   applyProviderDefaults();
   initVoice();
   await loadHealth();

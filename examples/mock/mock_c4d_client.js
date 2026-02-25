@@ -119,6 +119,43 @@ function execute(command) {
     return { message: payload.message || "Nova4D connected" };
   }
 
+  if (action === "introspect-scene") {
+    const objects = Array.from(WORLD.objects.values()).map((obj) => ({
+      name: obj.name,
+      path: obj.name,
+      parent_path: null,
+      type_id: 0,
+      selected: false,
+      position: obj.position || [0, 0, 0],
+      rotation_deg: obj.rotation || [0, 0, 0],
+      scale: obj.scale || [1, 1, 1],
+      child_count: 0,
+      children: [],
+      visibility_editor: 0,
+      visibility_render: 0,
+    }));
+    const materials = Array.from(WORLD.materials.values()).map((name) => ({
+      name,
+      type_id: 0,
+    }));
+    return {
+      document_name: "MockDocument",
+      fps: 30,
+      render_engine_id: null,
+      counts: {
+        objects_total: objects.length,
+        materials_total: materials.length,
+        objects_returned: objects.length,
+        materials_returned: materials.length,
+      },
+      active_object: objects[0] ? objects[0].name : null,
+      active_object_path: objects[0] ? objects[0].path : null,
+      root_paths: objects.map((obj) => obj.path),
+      objects,
+      materials,
+    };
+  }
+
   return { accepted: action, payload };
 }
 

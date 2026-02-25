@@ -840,6 +840,27 @@ def _object_path(obj):
     return "/".join(names)
 
 
+def _vec_to_list(value):
+    return [float(value.x), float(value.y), float(value.z)]
+
+
+def _rot_to_deg_list(value):
+    return [
+        float(c4d.utils.RadToDeg(value.x)),
+        float(c4d.utils.RadToDeg(value.y)),
+        float(c4d.utils.RadToDeg(value.z)),
+    ]
+
+
+def _collect_child_names(obj):
+    out = []
+    child = obj.GetDown()
+    while child:
+        out.append(child.GetName())
+        child = child.GetNext()
+    return out
+
+
 def _introspect_scene(doc, payload):
     if not doc:
         raise RuntimeError("no active document")
@@ -856,13 +877,31 @@ def _introspect_scene(doc, payload):
         total_objects += 1
         if len(objects) >= max_objects:
             continue
+        path = _object_path(obj)
+        parent = obj.GetUp()
+        parent_path = _object_path(parent) if parent else None
+        abs_pos = obj.GetAbsPos()
+        abs_rot = obj.GetAbsRot()
+        abs_scale = obj.GetAbsScale()
+        child_names = _collect_child_names(obj)
         row = {
             "name": obj.GetName(),
+            "path": path if include_paths else None,
+            "parent_path": parent_path if include_paths else None,
             "type_id": int(obj.GetType()),
             "selected": bool(obj.GetBit(c4d.BIT_ACTIVE)),
+            "position": _vec_to_list(abs_pos),
+            "rotation_deg": _rot_to_deg_list(abs_rot),
+            "scale": _vec_to_list(abs_scale),
+            "child_count": len(child_names),
+            "children": child_names,
         }
-        if include_paths:
-            row["path"] = _object_path(obj)
+        try:
+            row["visibility_editor"] = int(obj[c4d.ID_BASEOBJECT_VISIBILITY_EDITOR])
+            row["visibility_render"] = int(obj[c4d.ID_BASEOBJECT_VISIBILITY_RENDER])
+        except Exception:
+            row["visibility_editor"] = None
+            row["visibility_render"] = None
         objects.append(row)
 
     materials = []
@@ -873,6 +912,7 @@ def _introspect_scene(doc, payload):
         if len(materials) < max_materials:
             materials.append({
                 "name": material.GetName(),
+                "type_id": int(material.GetType()),
             })
         material = material.GetNext()
 
@@ -885,6 +925,13 @@ def _introspect_scene(doc, payload):
             render_engine = None
 
     active_obj = doc.GetActiveObject()
+    active_object_path = _object_path(active_obj) if active_obj else None
+    roots = []
+    root = doc.GetFirstObject()
+    while root:
+        roots.append(_object_path(root))
+        root = root.GetNext()
+
     return {
         "document_name": doc.GetDocumentName(),
         "fps": int(doc.GetFps()),
@@ -896,6 +943,8 @@ def _introspect_scene(doc, payload):
             "materials_returned": len(materials),
         },
         "active_object": active_obj.GetName() if active_obj else None,
+        "active_object_path": active_object_path,
+        "root_paths": roots,
         "objects": objects,
         "materials": materials,
     }

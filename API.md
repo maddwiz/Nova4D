@@ -1028,6 +1028,8 @@ curl -s -X POST "${BASE_URL}/nova4d/assistant/plan" \
     "mode": "balanced",
     "allow_dangerous": false
   },
+  "use_scene_context": true,
+  "refresh_scene_context": true,
   "max_commands": 10
 }' | jq .
 ```
@@ -1047,6 +1049,8 @@ curl -s -X POST "${BASE_URL}/nova4d/assistant/run" \
     "mode": "balanced",
     "allow_dangerous": false
   },
+  "use_scene_context": true,
+  "refresh_scene_context": true,
   "max_commands": 10
 }' | jq .
 ```
@@ -1088,6 +1092,32 @@ curl -s -X POST "${BASE_URL}/nova4d/introspection/request" \
 
 ```bash
 curl -s "${BASE_URL}/nova4d/introspection/latest" "${AUTH_HEADER[@]}" | jq .
+```
+
+## Scene Query Endpoints
+
+### GET /nova4d/scene/graph
+
+```bash
+curl -s "${BASE_URL}/nova4d/scene/graph?refresh=1&max_objects=1000&max_materials=500" "${AUTH_HEADER[@]}" | jq .
+```
+
+### GET /nova4d/scene/objects
+
+```bash
+curl -s "${BASE_URL}/nova4d/scene/objects?q=cube&selected=false&limit=100" "${AUTH_HEADER[@]}" | jq .
+```
+
+### GET /nova4d/scene/materials
+
+```bash
+curl -s "${BASE_URL}/nova4d/scene/materials?q=redshift&limit=100" "${AUTH_HEADER[@]}" | jq .
+```
+
+### GET /nova4d/scene/object
+
+```bash
+curl -s "${BASE_URL}/nova4d/scene/object?name=AICube" "${AUTH_HEADER[@]}" | jq .
 ```
 
 Studio UI:
