@@ -27,3 +27,11 @@ Environment options:
 ```bash
 bash examples/mock/e2e_mock.sh
 ```
+
+## Cinematic Smoke CLI Demo
+
+With server + mock worker running, execute:
+
+```bash
+bash examples/curl/cinematic_smoke_e2e.sh
+```

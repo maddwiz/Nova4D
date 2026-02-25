@@ -57,6 +57,12 @@ Run mock worker (no Cinema 4D required):
 node examples/mock/mock_c4d_client.js
 ```
 
+Run full cinematic-smoke CLI validation (server + worker must already be running):
+
+```bash
+bash examples/curl/cinematic_smoke_e2e.sh
+```
+
 ## Nova4D Studio UI (AI + Voice)
 
 Start the server, then open:
