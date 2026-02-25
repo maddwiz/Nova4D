@@ -64,6 +64,9 @@ const nodes = {
   providerProfileSaveButton: document.getElementById("providerProfileSaveButton"),
   providerProfileDeleteButton: document.getElementById("providerProfileDeleteButton"),
   providerProfileStatus: document.getElementById("providerProfileStatus"),
+  guidedCheckButton: document.getElementById("guidedCheckButton"),
+  guidedCheckSummary: document.getElementById("guidedCheckSummary"),
+  guidedCheckList: document.getElementById("guidedCheckList"),
 };
 
 const providerDefaults = {
@@ -120,6 +123,15 @@ const LIVE_STREAM_RECONNECT_MS = 2000;
 const LIVE_STREAM_MAX_EVENTS = 40;
 let recentCommandMap = new Map();
 let providerProfiles = [];
+let providerTestState = {
+  tested: false,
+  ok: false,
+  fingerprint: "",
+  mode: "",
+  latency_ms: null,
+  error: "",
+  at: null,
+};
 
 function escapeHtml(input) {
   return String(input)
@@ -313,6 +325,7 @@ function applySelectedProviderProfile() {
   }
   nodes.providerProfileName.value = profile.name;
   applyProviderDefaults();
+  invalidateProviderTestState();
   setProviderStatus(`Loaded provider profile "${profile.name}". Test before running.`, "hint");
   setProviderProfileStatus(
     profile.provider_api_key
@@ -597,6 +610,88 @@ async function runPreflight(probeWorker = false) {
     nodes.preflightSummary.textContent = `Preflight failed: ${err.message}`;
     nodes.preflightChecks.innerHTML = "";
   }
+}
+
+async function runGuidedCheck() {
+  nodes.guidedCheckSummary.className = "status-warn";
+  nodes.guidedCheckSummary.textContent = "Running guided checklist...";
+  nodes.guidedCheckList.innerHTML = "<li class='hint'>Checking bridge, setup, worker, and provider...</li>";
+
+  const steps = [];
+  let preflightResponse = null;
+
+  try {
+    const health = await api("/nova4d/health");
+    steps.push({
+      status: "pass",
+      label: "Bridge connection",
+      message: "Nova4D bridge is reachable.",
+      details: `pending=${health.queue?.pending_count ?? 0} succeeded=${health.queue?.by_status?.succeeded ?? 0}`,
+    });
+  } catch (err) {
+    steps.push({
+      status: "fail",
+      label: "Bridge connection",
+      message: "Nova4D bridge health request failed.",
+      details: err.message,
+    });
+  }
+
+  try {
+    preflightResponse = await api("/nova4d/system/preflight?probe_worker=true");
+    const overall = normalizeChecklistStatus(preflightResponse.overall_status || "warn");
+    const ready = preflightResponse.ready_for_local_use === true;
+    const summary = preflightResponse.summary || {};
+    steps.push({
+      status: ready ? "pass" : overall,
+      label: "Local readiness",
+      message: ready
+        ? "Required local checks passed."
+        : "Some local checks need attention.",
+      details: `pass=${summary.pass || 0} warn=${summary.warn || 0} fail=${summary.fail || 0}`,
+    });
+
+    const checks = Array.isArray(preflightResponse.checks) ? preflightResponse.checks : [];
+    const workerProbe = checks.find((row) => String(row.id || "") === "worker_probe");
+    if (workerProbe) {
+      steps.push({
+        status: normalizeChecklistStatus(workerProbe.status),
+        label: "Worker probe",
+        message: String(workerProbe.message || "Worker probe completed."),
+        details: workerProbe.details ? JSON.stringify(workerProbe.details) : "",
+      });
+    } else {
+      steps.push({
+        status: "warn",
+        label: "Worker probe",
+        message: "Worker probe result not returned.",
+        details: "Run preflight + worker probe again.",
+      });
+    }
+  } catch (err) {
+    steps.push({
+      status: "fail",
+      label: "Local readiness",
+      message: "Could not run preflight checks.",
+      details: err.message,
+    });
+    steps.push({
+      status: "warn",
+      label: "Worker probe",
+      message: "Worker probe skipped because preflight failed.",
+      details: "",
+    });
+  }
+
+  steps.push(providerReadinessStep());
+  renderGuidedChecklist(steps);
+
+  if (preflightResponse) {
+    renderPreflight(preflightResponse);
+  }
+  await loadHealth();
+  await loadSystemStatus();
+  await loadRecent();
 }
 
 function parseEventData(raw) {
@@ -978,6 +1073,118 @@ function setProviderStatus(text, className = "hint") {
   nodes.providerStatus.textContent = text;
 }
 
+function invalidateProviderTestState() {
+  providerTestState = {
+    tested: false,
+    ok: false,
+    fingerprint: providerConfigFingerprint(),
+    mode: String(nodes.providerKind.value || "unknown"),
+    latency_ms: null,
+    error: "",
+    at: null,
+  };
+}
+
+function providerConfigFingerprint() {
+  const kind = normalizeProviderKind(nodes.providerKind.value);
+  const baseUrl = (nodes.providerBaseUrl.value || "").trim();
+  const model = (nodes.providerModel.value || "").trim();
+  const hasApiKey = (nodes.providerApiKey.value || "").trim() ? "key" : "no-key";
+  return [kind, baseUrl, model, hasApiKey].join("|");
+}
+
+function normalizeChecklistStatus(status) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "pass" || normalized === "warn" || normalized === "fail") {
+    return normalized;
+  }
+  return "warn";
+}
+
+function renderGuidedChecklist(steps) {
+  const rows = Array.isArray(steps) ? steps : [];
+  if (!rows.length) {
+    nodes.guidedCheckList.innerHTML = "<li class='hint'>No guided checks were run.</li>";
+    nodes.guidedCheckSummary.className = "hint";
+    nodes.guidedCheckSummary.textContent = "Checklist not run in this session.";
+    return;
+  }
+
+  const counts = { pass: 0, warn: 0, fail: 0 };
+  rows.forEach((item) => {
+    const status = normalizeChecklistStatus(item.status);
+    counts[status] += 1;
+  });
+  const overall = counts.fail > 0 ? "fail" : (counts.warn > 0 ? "warn" : "pass");
+  nodes.guidedCheckSummary.className = classForStatus(overall);
+  nodes.guidedCheckSummary.textContent =
+    `Guided check ${overall.toUpperCase()} | pass ${counts.pass} warn ${counts.warn} fail ${counts.fail}`;
+
+  nodes.guidedCheckList.innerHTML = rows.map((item) => {
+    const status = normalizeChecklistStatus(item.status);
+    const statusClass = classForStatus(status);
+    const statusLabel = escapeHtml(status.toUpperCase());
+    const label = escapeHtml(item.label || "check");
+    const message = escapeHtml(item.message || "");
+    const details = item.details ? escapeHtml(String(item.details)) : "";
+    return `<li>
+      <div><span class="${statusClass}">[${statusLabel}]</span> ${label}</div>
+      <div class="hint">${message}</div>
+      ${details ? `<div class="mono small">${details}</div>` : ""}
+    </li>`;
+  }).join("");
+}
+
+function providerReadinessStep() {
+  const kind = normalizeProviderKind(nodes.providerKind.value);
+  if (kind === "builtin") {
+    return {
+      status: "pass",
+      label: "Provider readiness",
+      message: "Builtin planner is selected and ready.",
+      details: "kind=builtin",
+    };
+  }
+
+  const fingerprint = providerConfigFingerprint();
+  if (!providerTestState.tested) {
+    return {
+      status: "warn",
+      label: "Provider readiness",
+      message: "Provider has not been tested in this session.",
+      details: "Run \"Test Provider\" once before planning/running.",
+    };
+  }
+
+  if (providerTestState.fingerprint !== fingerprint) {
+    return {
+      status: "warn",
+      label: "Provider readiness",
+      message: "Provider fields changed after the last test.",
+      details: "Retest the provider to validate current settings.",
+    };
+  }
+
+  if (!providerTestState.ok) {
+    return {
+      status: "fail",
+      label: "Provider readiness",
+      message: "Last provider test failed.",
+      details: providerTestState.error || "Unknown provider error.",
+    };
+  }
+
+  const latency = Number.isFinite(Number(providerTestState.latency_ms))
+    ? `${providerTestState.latency_ms}ms`
+    : "unknown";
+  return {
+    status: "pass",
+    label: "Provider readiness",
+    message: "Last provider test passed for current settings.",
+    details: `mode=${providerTestState.mode || kind} latency=${latency}`,
+  };
+}
+
 function findTemplate(templateId) {
   return WORKFLOW_TEMPLATES.find((item) => item.id === templateId) || WORKFLOW_TEMPLATES[0];
 }
@@ -1048,6 +1255,7 @@ function renderRun(runResponse) {
 }
 
 async function testProviderConnection() {
+  const fingerprint = providerConfigFingerprint();
   setProviderStatus("Testing provider connection...", "status-warn");
   try {
     const response = await api("/nova4d/assistant/provider-test", {
@@ -1063,8 +1271,26 @@ async function testProviderConnection() {
       : "";
     const detail = result.details ? ` | ${result.details}` : "";
     setProviderStatus(`Provider ready (${result.mode || "unknown"})${latency}${detail}`, "status-ok");
+    providerTestState = {
+      tested: true,
+      ok: true,
+      fingerprint,
+      mode: String(result.mode || nodes.providerKind.value || "unknown"),
+      latency_ms: Number.isFinite(Number(result.latency_ms)) ? Number(result.latency_ms) : null,
+      error: "",
+      at: new Date().toISOString(),
+    };
   } catch (err) {
     setProviderStatus(`Provider test failed: ${err.message}`, "status-error");
+    providerTestState = {
+      tested: true,
+      ok: false,
+      fingerprint,
+      mode: String(nodes.providerKind.value || "unknown"),
+      latency_ms: null,
+      error: err.message,
+      at: new Date().toISOString(),
+    };
   }
 }
 
@@ -1366,6 +1592,7 @@ nodes.providerKind.addEventListener("change", () => {
   const defaults = providerDefaults[kind] || providerDefaults.builtin;
   nodes.providerBaseUrl.value = defaults.base_url;
   nodes.providerModel.value = defaults.model;
+  invalidateProviderTestState();
   setProviderStatus("Provider changed. Test before running.", "hint");
   saveStudioSettings();
 });
@@ -1431,6 +1658,7 @@ nodes.previewTemplateButton.addEventListener("click", previewTemplateWorkflow);
 nodes.runTemplateButton.addEventListener("click", runTemplateWorkflow);
 nodes.queuePlanButton.addEventListener("click", queueLastPlan);
 nodes.providerTestButton.addEventListener("click", testProviderConnection);
+nodes.guidedCheckButton.addEventListener("click", runGuidedCheck);
 nodes.recentTableBody.addEventListener("click", handleRecentTableAction);
 nodes.providerProfileSelect.addEventListener("change", () => {
   const profile = selectedProviderProfile();
@@ -1491,6 +1719,13 @@ nodes.providerProfileRememberKey.addEventListener("change", () => {
   node.addEventListener("input", saveStudioSettings);
 });
 
+[nodes.providerBaseUrl, nodes.providerModel, nodes.providerApiKey].forEach((node) => {
+  node.addEventListener("input", () => {
+    invalidateProviderTestState();
+    setProviderStatus("Provider changed. Test before running.", "hint");
+  });
+});
+
 window.addEventListener("beforeunload", () => {
   disconnectLiveStream("Live stream offline.");
 });
@@ -1519,12 +1754,16 @@ window.addEventListener("beforeunload", () => {
   nodes.providerProfileName.value = "";
   nodes.providerProfileRememberKey.checked = false;
   nodes.streamEvents.innerHTML = "<li class='hint'>Waiting for live events...</li>";
+  nodes.guidedCheckSummary.className = "hint";
+  nodes.guidedCheckSummary.textContent = "Checklist not run in this session.";
+  nodes.guidedCheckList.innerHTML = "<li class='hint'>Run guided check to populate readiness results.</li>";
   nodes.preflightChecks.innerHTML = "<li class='hint'>Run preflight to validate local setup.</li>";
   nodes.systemStatusList.innerHTML = "<li class='hint'>Refresh system status to load readiness details.</li>";
   providerProfiles = loadProviderProfiles();
   renderProviderProfiles();
   applyStoredSettings(loadStoredSettings());
   applyProviderDefaults();
+  invalidateProviderTestState();
   setProviderStatus("Provider not tested in this session.", "hint");
   if (providerProfiles.length > 0) {
     setProviderProfileStatus("Saved provider profiles loaded.", "hint");
