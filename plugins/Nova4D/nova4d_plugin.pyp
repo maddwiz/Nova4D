@@ -15,12 +15,12 @@ try:
 except Exception:  # pragma: no cover
     requests = None
 
-# Defaults are local-development IDs from the Nova4D setup scripts.
-# Override via env vars for your official PluginCafe IDs when distributing.
-PLUGIN_ID_COMMAND = int(os.environ.get("NOVA4D_PLUGIN_ID_COMMAND", "1234567"))
-PLUGIN_ID_MESSAGE = int(os.environ.get("NOVA4D_PLUGIN_ID_MESSAGE", "1234568"))
+# Default IDs are the official Nova4D PluginCafe IDs assigned to maddwiz (2026-02-25).
+# Override via env vars if your fork/distribution uses different assigned IDs.
+PLUGIN_ID_COMMAND = int(os.environ.get("NOVA4D_PLUGIN_ID_COMMAND", "1067627"))
+PLUGIN_ID_MESSAGE = int(os.environ.get("NOVA4D_PLUGIN_ID_MESSAGE", "1067628"))
 PLUGIN_NAME = "Nova4D - OpenClaw Bridge"
-SPECIAL_EVENT_ID = int(os.environ.get("NOVA4D_SPECIAL_EVENT_ID", "1234569"))
+SPECIAL_EVENT_ID = int(os.environ.get("NOVA4D_SPECIAL_EVENT_ID", "1067629"))
 
 BRIDGE_HOST = os.environ.get("NOVA4D_HOST", "127.0.0.1")
 BRIDGE_PORT = int(os.environ.get("NOVA4D_PORT", "30010"))

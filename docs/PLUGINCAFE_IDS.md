@@ -6,7 +6,13 @@ Nova4D needs three unique Cinema 4D plugin IDs for release builds:
 - `NOVA4D_PLUGIN_ID_MESSAGE`
 - `NOVA4D_SPECIAL_EVENT_ID`
 
-The local defaults (`1234567`, `1234568`, `1234569`) are placeholders only.
+Current Nova4D assignment for `maddwiz` (created 2026-02-25):
+
+- `NOVA4D_PLUGIN_ID_COMMAND=1067627`
+- `NOVA4D_PLUGIN_ID_MESSAGE=1067628`
+- `NOVA4D_SPECIAL_EVENT_ID=1067629`
+
+Legacy setup placeholders (`1234567`, `1234568`, `1234569`) should not be used for release.
 
 ## Where to Request IDs
 
@@ -35,6 +41,14 @@ Set values in your shell or `.env`:
 export NOVA4D_PLUGIN_ID_COMMAND=<official_id_1>
 export NOVA4D_PLUGIN_ID_MESSAGE=<official_id_2>
 export NOVA4D_SPECIAL_EVENT_ID=<official_id_3>
+```
+
+For this repository, the official currently assigned values are:
+
+```bash
+export NOVA4D_PLUGIN_ID_COMMAND=1067627
+export NOVA4D_PLUGIN_ID_MESSAGE=1067628
+export NOVA4D_SPECIAL_EVENT_ID=1067629
 ```
 
 Then validate:

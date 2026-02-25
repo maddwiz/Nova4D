@@ -2,25 +2,24 @@
 
 This is the exact closeout sequence before paid release.
 
-## 1. Replace Placeholder Plugin IDs
+## 1. Confirm Official Plugin IDs
 
 Nova4D now supports env-driven IDs; no source edit required.
 
-1. Request 3 unique IDs from PluginCafe:
-   - Command plugin ID
-   - Message plugin ID
-   - Special event ID
-   - Reference: `docs/PLUGINCAFE_IDS.md` (includes official Maxon links)
-2. Set environment variables used by Cinema 4D launch:
+1. Official IDs currently assigned to `maddwiz`:
+   - `NOVA4D_PLUGIN_ID_COMMAND=1067627`
+   - `NOVA4D_PLUGIN_ID_MESSAGE=1067628`
+   - `NOVA4D_SPECIAL_EVENT_ID=1067629`
+2. Set environment variables used by Cinema 4D launch (or keep `.env.example` defaults):
 
 ```bash
-export NOVA4D_PLUGIN_ID_COMMAND=<your_id_1>
-export NOVA4D_PLUGIN_ID_MESSAGE=<your_id_2>
-export NOVA4D_SPECIAL_EVENT_ID=<your_id_3>
+export NOVA4D_PLUGIN_ID_COMMAND=1067627
+export NOVA4D_PLUGIN_ID_MESSAGE=1067628
+export NOVA4D_SPECIAL_EVENT_ID=1067629
 ```
 
 3. Start Cinema 4D from the same environment/session.
-4. Confirm no startup warning about placeholder IDs appears in the console.
+4. Confirm no startup warning about legacy placeholder IDs appears in the console.
 5. Run:
 
 ```bash
@@ -61,7 +60,7 @@ Use C4D Script Manager to inspect cloner DescIDs and pass:
 ```json
 {
   "cloner_name": "MyCloner",
-  "parameter_id": 1234567,
+  "parameter_id": 1001001,
   "count": 50
 }
 ```
@@ -71,7 +70,7 @@ and
 ```json
 {
   "cloner_name": "MyCloner",
-  "parameter_id": 1234568,
+  "parameter_id": 1001002,
   "mode": 2
 }
 ```

@@ -12,7 +12,7 @@
 - [ ] OpenClaw extension loads and tools queue commands
 - [ ] Python SDK example works
 - [ ] MCP server starts and tools execute
-- [ ] PluginCafe IDs assigned and set via env vars (`NOVA4D_PLUGIN_ID_*`)
+- [ ] PluginCafe IDs are configured (`1067627`, `1067628`, `1067629`) or replaced with your assigned fork IDs
 - [ ] `bash scripts/check_plugin_ids.sh` passes (non-placeholder + unique IDs)
 - [ ] Real C4D action pass completed (see `docs/IMPORTANT_NOTES_COMPLETION.md`)
 - [ ] Cloner `parameter_id` values confirmed for count/mode in your C4D build
