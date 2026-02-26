@@ -145,6 +145,8 @@ Detailed guide: `docs/STUDIO_UI.md`
 - Plugin IDs are env-configurable (`NOVA4D_PLUGIN_ID_COMMAND`, `NOVA4D_PLUGIN_ID_MESSAGE`, `NOVA4D_SPECIAL_EVENT_ID`).
 - Repo defaults use the official Nova4D IDs assigned to maddwiz (`1067627`, `1067628`, `1067629`).
 - Use `bash scripts/check_plugin_ids.sh` as a release gate (non-placeholder + unique IDs required).
+- Use `npm run version:check` before release to catch package/docs/script version drift.
+- Use `npm run legal:check` (or `bash scripts/check_legal_signoff.sh --strict`) before marketplace upload.
 - Use `bash scripts/verify_release_zip.sh v1.0.1` to confirm release zip contents before shipping.
 - Use `npm run release:preflight` for one-command release checks (use `npm run release:preflight:dev` until official PluginCafe IDs are assigned).
 - Exact request steps are documented in `docs/PLUGINCAFE_IDS.md`.

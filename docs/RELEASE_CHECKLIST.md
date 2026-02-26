@@ -1,6 +1,7 @@
 # Release Checklist
 
 - [ ] `npm run check` passes
+- [ ] `npm run version:check` passes (package/scripts/docs version alignment)
 - [ ] `npm run release:preflight` passes (or `npm run release:preflight:dev` while waiting on PluginCafe IDs)
 - [ ] `GET /nova4d/health` returns `status=ok`
 - [ ] `POST /nova4d/test/ping` queues successfully
@@ -20,4 +21,5 @@
 - [ ] Package script produces `dist/Nova4D-v1.0.1.zip`
 - [ ] `bash scripts/verify_release_zip.sh v1.0.1` passes (required paths present, blocked paths excluded)
 - [ ] EULA included
+- [ ] Legal signoff completed in `docs/LEGAL_SIGNOFF.md` (`LEGAL_APPROVED: true`, approver + date)
 - [ ] Demo script and launch copy finalized
